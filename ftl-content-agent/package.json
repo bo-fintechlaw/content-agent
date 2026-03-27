@@ -1,0 +1,32 @@
+{
+  "name": "ftl-content-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FinTech Law LLC autonomous content agent — orchestration service",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "linkedin:exchange": "node scripts/exchange-linkedin-token.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@sanity/client": "^6.28.0",
+    "@slack/bolt": "^4.6.0",
+    "@slack/web-api": "^7.8.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "axios": "^1.8.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "oauth-1.0a": "^2.2.6",
+    "rss-parser": "^3.13.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

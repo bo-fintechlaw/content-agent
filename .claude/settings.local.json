@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find C:UsersBoHowellcontent-agentcontent-agent -type f -name *.json -o -name *.txt -o -name *.md -o -name .env*)",
+      "Bash(find C:UsersBoHowellcontent-agentcontent-agent/ftl-content-agent -name *.sql -o -name migrations -type d)",
+      "Bash(node -e \":*)",
+      "Bash(node:*)",
+      "Bash(find /c/Users/BoHowell/content-agent/content-agent/ftl-content-agent -path *db*migrations* -type f)",
+      "Bash(grep -v \"^$\")",
+      "Bash(npx --yes ngrok --version)",
+      "Bash(where ngrok:*)",
+      "Bash(ngrok version:*)",
+      "Bash(cmd.exe /c \"where ngrok\" 2>/dev/null)",
+      "Read(//c/Users/BoHowell/AppData/Local/ngrok/**)",
+      "Read(//c/ProgramData/chocolatey/bin/**)",
+      "Read(//c/Users/BoHowell/**)",
+      "Bash(npx ngrok:*)",
+      "Skill(railway:new)",
+      "Bash(railway whoami:*)",
+      "Bash(railway status:*)",
+      "Bash(railway list:*)",
+      "Bash(railway link:*)",
+      "Bash(railway add:*)",
+      "Bash(railway variables:*)",
+      "Bash(railway up:*)",
+      "Bash(railway logs:*)",
+      "Bash(railway domain:*)",
+      "Bash(curl:*)"
+    ]
+  }
+}
