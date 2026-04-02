@@ -92,5 +92,6 @@ Rules:
 - BAD: "Improve the opening"
 - GOOD: "Move the $150,000 penalty to sentence 1. Replace 'The SEC recently announced' with 'The SEC just issued a $150,000 wake-up call to every investment adviser in America.'"
 - Flag banned phrases: "navigate the complex landscape", "it is important to note", "at the end of the day", "moving forward", "leverage" as verb, any contractions
+- CRITICAL: Flag any fabricated personal experiences — "every founder I talked to", "a client asked me", "in my conversations with", "someone told me". The drafter is an AI and must never invent firsthand anecdotes. Score voice below 6 if this is present.
 - JSON only`;
 }
