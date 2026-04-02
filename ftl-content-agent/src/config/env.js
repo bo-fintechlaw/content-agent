@@ -32,6 +32,7 @@ const OPTIONAL_STRING = [
   'JUDGE_FALLBACK_PASS_ON_ANTHROPIC_UNAVAILABLE',
   'DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE',
   'NETLIFY_BUILD_HOOK',
+  'XAI_API_KEY',
 ];
 
 /**
@@ -133,6 +134,7 @@ export function validateEnv() {
   config.DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE = drafterFallback;
 
   config.NETLIFY_BUILD_HOOK = optional.NETLIFY_BUILD_HOOK || '';
+  config.XAI_API_KEY = optional.XAI_API_KEY || '';
 
   const orchestrationMaxPublishRaw = process.env.ORCHESTRATION_MAX_PUBLISH ?? '2';
   const orchestrationMaxPublish = Number.parseInt(orchestrationMaxPublishRaw, 10);

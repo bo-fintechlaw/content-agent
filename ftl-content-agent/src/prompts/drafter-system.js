@@ -168,7 +168,7 @@ Return JSON with this exact structure:
   "blog_seo_title": "SEO title (50-60 chars, primary keyword included)",
   "blog_seo_description": "Meta description (150-160 chars, compelling pitch not summary, primary keyword included)",
   "blog_seo_keywords": "comma-separated keywords",
-  "blog_category": "casestudy"|"funding"|"business"|"startup",
+  "blog_category": "regulatory"|"digital-assets"|"ai-legal"|"startup"|"enforcement",
   "blog_tags": "comma-separated tags",
   "image_prompt": "Editorial-quality featured image prompt — composition, style, colors. Not stock-photo generic.",
   "linkedin_post": "Professional LinkedIn post (100-200 words). Hook first line. End with CTA to blog.",

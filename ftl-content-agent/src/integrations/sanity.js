@@ -3,7 +3,7 @@ import { createClient } from '@sanity/client';
 import { CircuitBreaker } from '../utils/circuit-breaker.js';
 import { fail, start, success } from '../utils/logger.js';
 import { blogSectionsToMainContent } from '../utils/portable-text.js';
-import { generateShareImageWithAgentActions } from './sanity-agent-actions.js';
+import { generateAndUploadImage } from './image-generator.js';
 
 const breaker = new CircuitBreaker('sanity');
 
@@ -83,45 +83,28 @@ export async function createAndPublishBlogFromDraft({
   }
 
   let imageReady = false;
-  if (generateImage && publishAfterCreate) {
-    // Trigger image generation asynchronously (best-effort).
-    // In some runtimes, Agent Actions aren't available, so this may fail.
-    let agentActionOk = false;
+  if (generateImage && draft.image_prompt && config.XAI_API_KEY) {
     try {
-      const imgRes = await generateShareImageWithAgentActions({
-        client,
-        schemaId: config.SANITY_SCHEMA_ID,
-        documentId: publishedId,
-        instruction: 'Generate a featured image based on the image prompt field.',
+      const slugPart = (draft.blog_slug || 'blog').slice(0, 40);
+      const assetRef = await generateAndUploadImage({
+        prompt: draft.image_prompt,
+        sanityClient: client,
+        xaiApiKey: config.XAI_API_KEY,
+        filename: `${slugPart}.png`,
       });
-      agentActionOk = !!imgRes?.ok;
-    } catch (e) {
-      fail('createAndPublishBlogFromDraft:imageGeneration', e);
-    }
 
-    // Poll until shareImage.asset exists (or timeout) before publishing.
-    if (agentActionOk) {
-      const maxWait = timeoutMs;
-      let elapsed = 0;
-
-      while (elapsed < maxWait && !imageReady) {
-        await new Promise((r) => setTimeout(r, pollIntervalMs));
-        elapsed += pollIntervalMs;
-        try {
-          const share = await client.fetch(
-            '*[_id==$draftDocId][0]{shareImage{asset{_ref}}}',
-            { draftDocId }
-          );
-          imageReady = !!share?.shareImage?.asset?._ref;
-        } catch {
-          // Keep polling
-        }
+      if (assetRef) {
+        // Patch the draft document with the generated image asset
+        await client
+          .patch(draftDocId)
+          .set({ shareImage: { _type: 'image', asset: assetRef } })
+          .commit();
+        imageReady = true;
+        success('createAndPublishBlogFromDraft:imageGeneration', { assetRef });
       }
-
-      success('createAndPublishBlogFromDraft:poll', { imageReady });
-    } else {
-      // Avoid 30s polling when Agent Actions aren't available.
-      success('createAndPublishBlogFromDraft:poll:skipped', { agentActionOk });
+    } catch (e) {
+      // Non-fatal — publish without image
+      fail('createAndPublishBlogFromDraft:imageGeneration', e);
     }
   }
 
