@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import express from 'express';
 import { fail, start, success } from '../utils/logger.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
+import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { createSlackClient, openFeedbackModal, sendSocialReviewMessage } from '../integrations/slack.js';
 
 export function createSlackWebhookRouter(supabase, config) {
@@ -79,7 +80,7 @@ export function createSlackWebhookRouter(supabase, config) {
             .eq('id', draftId);
         } else if (actionId === 'request_changes_social') {
           const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-          await openFeedbackModal(slack, payload.trigger_id, draftId);
+          await openFeedbackModal(slack, payload.trigger_id, draftId, 'social');
         } else if (actionId === 'reject_draft') {
           await setTopicStatusFromDraft(supabase, draftId, 'rejected');
         } else if (actionId === 'request_changes_draft') {
@@ -104,7 +105,7 @@ async function handleViewSubmission(supabase, config, payload, res) {
     return res.status(200).json({ response_action: 'clear' });
   }
 
-  const { draftId } = JSON.parse(payload.view.private_metadata ?? '{}');
+  const { draftId, context } = JSON.parse(payload.view.private_metadata ?? '{}');
   const feedback =
     payload.view.state?.values?.feedback_block?.feedback_text?.value ?? '';
 
@@ -112,8 +113,32 @@ async function handleViewSubmission(supabase, config, payload, res) {
     return res.status(200).json({ response_action: 'clear' });
   }
 
+  // Social feedback: regenerate social posts and resend review message
+  if (context === 'social') {
+    // Respond to Slack immediately, then process async
+    res.status(200).json({ response_action: 'clear' });
+
+    try {
+      const revised = await reviseSocialContent(supabase, config, draftId, feedback.trim());
+
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendSocialReviewMessage(slack, config.SLACK_CHANNEL_ID, {
+        draftId,
+        blogTitle: revised.blogTitle,
+        linkedinPost: revised.linkedinPost,
+        xPost: revised.xPost,
+        xThread: revised.xThread,
+      });
+
+      success('handleViewSubmission:social', { draftId, feedback: feedback.slice(0, 100) });
+    } catch (error) {
+      fail('handleViewSubmission:social', error);
+    }
+    return;
+  }
+
+  // Blog feedback: reset draft for full revision cycle
   try {
-    // Reset the draft for revision with the human feedback
     const { data: draft, error: fetchErr } = await supabase
       .from('content_drafts')
       .select('id, topic_id, revision_count, judge_flags')
@@ -138,9 +163,9 @@ async function handleViewSubmission(supabase, config, payload, res) {
       .update({ status: 'revision', updated_at: new Date().toISOString() })
       .eq('id', draft.topic_id);
 
-    success('handleViewSubmission', { draftId, feedback: feedback.slice(0, 100) });
+    success('handleViewSubmission:blog', { draftId, feedback: feedback.slice(0, 100) });
   } catch (error) {
-    fail('handleViewSubmission', error);
+    fail('handleViewSubmission:blog', error);
   }
 
   return res.status(200).json({ response_action: 'clear' });

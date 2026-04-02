@@ -212,7 +212,7 @@ export async function sendSocialReviewMessage(client, channel, payload) {
   return result;
 }
 
-export async function openFeedbackModal(client, triggerId, draftId) {
+export async function openFeedbackModal(client, triggerId, draftId, context = 'blog') {
   start('openFeedbackModal');
   try {
     await client.views.open({
@@ -220,7 +220,7 @@ export async function openFeedbackModal(client, triggerId, draftId) {
       view: {
         type: 'modal',
         callback_id: 'feedback_modal',
-        private_metadata: JSON.stringify({ draftId }),
+        private_metadata: JSON.stringify({ draftId, context }),
         title: { type: 'plain_text', text: 'Request Changes' },
         submit: { type: 'plain_text', text: 'Submit Feedback' },
         close: { type: 'plain_text', text: 'Cancel' },
