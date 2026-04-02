@@ -31,10 +31,11 @@ export async function runSocialPosting(supabase, config, options = {}) {
   const { data: drafts, error: draftsErr } = await supabase
     .from('content_drafts')
     .select(
-      'id,topic_id,blog_title,blog_slug,linkedin_post,x_post,x_thread,sanity_document_id,linkedin_post_id,x_post_id'
+      'id,topic_id,blog_title,blog_slug,linkedin_post,x_post,x_thread,sanity_document_id,linkedin_post_id,x_post_id,social_approved'
     )
     .in('topic_id', topicIds)
     .not('sanity_document_id', 'is', null)
+    .eq('social_approved', true)
     .order('created_at', { ascending: false })
     .limit(maxPerRun * 2);
 

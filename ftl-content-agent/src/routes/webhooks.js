@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import express from 'express';
 import { fail, start, success } from '../utils/logger.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
-import { createSlackClient, openFeedbackModal } from '../integrations/slack.js';
+import { createSlackClient, openFeedbackModal, sendSocialReviewMessage } from '../integrations/slack.js';
 
 export function createSlackWebhookRouter(supabase, config) {
   const router = express.Router();
@@ -36,14 +36,50 @@ export function createSlackWebhookRouter(supabase, config) {
 
         if (actionId === 'approve_draft') {
           await setTopicStatusFromDraft(supabase, draftId, 'approved');
-          publishDraftToSanity(supabase, config, draftId).catch(async (error) => {
-            fail('publishDraftToSanity', error);
-            try {
-              await setTopicStatusFromDraft(supabase, draftId, 'review');
-            } catch (statusErr) {
-              fail('publishDraftToSanity:statusUpdate', statusErr);
-            }
-          });
+          publishDraftToSanity(supabase, config, draftId)
+            .then(async () => {
+              // After successful Sanity publish, send social posts for review
+              try {
+                const { data: draft } = await supabase
+                  .from('content_drafts')
+                  .select('id, blog_title, linkedin_post, x_post, x_thread')
+                  .eq('id', draftId)
+                  .single();
+                if (draft) {
+                  const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+                  await sendSocialReviewMessage(slack, config.SLACK_CHANNEL_ID, {
+                    draftId: draft.id,
+                    blogTitle: draft.blog_title,
+                    linkedinPost: draft.linkedin_post,
+                    xPost: draft.x_post,
+                    xThread: draft.x_thread,
+                  });
+                }
+              } catch (socialErr) {
+                fail('sendSocialReviewAfterPublish', socialErr);
+              }
+            })
+            .catch(async (error) => {
+              fail('publishDraftToSanity', error);
+              try {
+                await setTopicStatusFromDraft(supabase, draftId, 'review');
+              } catch (statusErr) {
+                fail('publishDraftToSanity:statusUpdate', statusErr);
+              }
+            });
+        } else if (actionId === 'approve_social') {
+          await supabase
+            .from('content_drafts')
+            .update({ social_approved: true })
+            .eq('id', draftId);
+        } else if (actionId === 'reject_social') {
+          await supabase
+            .from('content_drafts')
+            .update({ social_approved: false })
+            .eq('id', draftId);
+        } else if (actionId === 'request_changes_social') {
+          const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+          await openFeedbackModal(slack, payload.trigger_id, draftId);
         } else if (actionId === 'reject_draft') {
           await setTopicStatusFromDraft(supabase, draftId, 'rejected');
         } else if (actionId === 'request_changes_draft') {

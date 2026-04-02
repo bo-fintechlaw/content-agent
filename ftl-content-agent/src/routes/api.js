@@ -44,13 +44,43 @@ export function createApiRouter(supabaseClient, config) {
     }
   });
 
-  router.post('/suggest-topic', async (_req, res) => {
+  router.post('/suggest-topic', async (req, res) => {
     start('POST /api/suggest-topic');
-    success('POST /api/suggest-topic', { stub: true });
-    res.status(501).json({
-      ok: false,
-      message: 'Not implemented — manual suggestions in a later phase',
-    });
+    try {
+      const { title, url, summary, category } = req.body ?? {};
+
+      if (!title || typeof title !== 'string' || !title.trim()) {
+        return res.status(400).json({ ok: false, error: 'Missing required field: title' });
+      }
+
+      const validCategories = ['regulatory', 'ai_legal_tech', 'startup', 'crypto'];
+      const topicCategory = validCategories.includes(category) ? category : 'startup';
+
+      const row = {
+        title: title.trim(),
+        source_url: url?.trim() || null,
+        source_name: 'manual_suggestion',
+        summary: summary?.trim() || null,
+        category: topicCategory,
+        relevance_score: 10.0,
+        status: 'ranked',
+        suggested_by: 'human',
+      };
+
+      const { data, error } = await supabaseClient
+        .from('content_topics')
+        .insert(row)
+        .select('id, title, status, relevance_score')
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      success('POST /api/suggest-topic', { id: data.id });
+      res.status(201).json({ ok: true, topic: data });
+    } catch (error) {
+      fail('POST /api/suggest-topic', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
   });
 
   router.get('/topics', async (_req, res) => {
@@ -181,13 +211,27 @@ export function createApiRouter(supabaseClient, config) {
     }
   });
 
-  router.get('/drafts', async (_req, res) => {
+  router.get('/drafts', async (req, res) => {
     start('GET /api/drafts');
-    success('GET /api/drafts', { stub: true });
-    res.status(501).json({
-      ok: false,
-      message: 'Not implemented — Phase 2+',
-    });
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+
+      const { data, error } = await supabaseClient
+        .from('content_drafts')
+        .select(
+          'id, topic_id, blog_title, blog_slug, judge_pass, judge_scores, revision_count, sanity_document_id, linkedin_post_id, x_post_id, published_at, created_at'
+        )
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw new Error(error.message);
+
+      success('GET /api/drafts', { count: data?.length ?? 0 });
+      res.json({ ok: true, drafts: data ?? [] });
+    } catch (error) {
+      fail('GET /api/drafts', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
   });
 
   return router;

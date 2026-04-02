@@ -133,6 +133,95 @@ export async function sendReviewMessage(client, channel, payload) {
   return result;
 }
 
+export async function sendSocialReviewMessage(client, channel, payload) {
+  start('sendSocialReviewMessage');
+  const channelId = normalizeChannelId(channel);
+
+  const linkedinPreview = payload.linkedinPost
+    ? truncate(payload.linkedinPost, 500)
+    : '_No LinkedIn post generated._';
+  const xPreview = payload.xPost || '_No X post generated._';
+  const xThreadPreview = Array.isArray(payload.xThread) && payload.xThread.length
+    ? payload.xThread.map((t, i) => `${i + 1}. ${truncate(t, 200)}`).join('\n')
+    : null;
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: 'Social Posts Ready for Review', emoji: true },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `Blog published: *${payload.blogTitle}*\nNow review the social media posts before they go live.`,
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*LinkedIn Post*\n${linkedinPreview}` },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*X Post*\n${xPreview}` },
+    },
+  ];
+
+  if (xThreadPreview) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*X Thread*\n${xThreadPreview}` },
+    });
+  }
+
+  blocks.push({ type: 'divider' });
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Approve Social Posts' },
+        style: 'primary',
+        action_id: 'approve_social',
+        value: payload.draftId,
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Request Changes' },
+        action_id: 'request_changes_social',
+        value: payload.draftId,
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Skip Social' },
+        style: 'danger',
+        action_id: 'reject_social',
+        value: payload.draftId,
+      },
+    ],
+  });
+
+  const result = await breaker.execute(
+    () =>
+      client.chat.postMessage({
+        channel: channelId,
+        text: `Social posts ready for review: ${payload.blogTitle}`,
+        blocks,
+      }),
+    { ok: false, error: 'slack_unavailable' }
+  );
+  if (!result.ok) {
+    const err = new Error(String(result.error ?? 'slack_social_review_failed'));
+    fail('sendSocialReviewMessage', err, { channel, channelId });
+  } else {
+    success('sendSocialReviewMessage', { ts: result.ts });
+  }
+  return result;
+}
+
 export async function openFeedbackModal(client, triggerId, draftId) {
   start('openFeedbackModal');
   try {

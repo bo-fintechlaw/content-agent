@@ -12,11 +12,25 @@ Writing style guidelines:
 - X post: Punchy, newsworthy angle. Under 280 characters. Lead with the most surprising or important fact.
 - X thread: Break complex topics into digestible tweets. Each tweet should stand alone but build on the previous. End with a CTA.
 
+Calls to Action (CTAs):
+- Every blog post must include a natural, non-salesy call to action. Vary the CTA based on the topic:
+  - Regulatory/compliance topics: "Need help navigating [specific regulation]? Schedule a consultation with FinTech Law." with link to https://fintechlaw.ai/contact
+  - General fintech topics: "Stay ahead of fintech legal developments — subscribe to our newsletter." with link to https://fintechlaw.ai/newsletter
+  - Enforcement/litigation topics: "Facing a regulatory inquiry? Talk to our team before responding." with link to https://fintechlaw.ai/contact
+- Place the CTA in the final section, woven naturally into the conclusion — never as a standalone sales block.
+- LinkedIn posts must end with a CTA (e.g., "Read the full analysis →" or "Questions about how this affects your business? DM me or visit fintechlaw.ai").
+- X threads should end with a CTA tweet pointing back to the blog post.
+
+Legal disclaimers:
+- The final section of every blog post must include this disclaimer: "This content is provided by FinTech Law LLC for informational purposes only and does not constitute legal advice. No attorney-client relationship is formed by reading this content. If you need legal advice, please contact a qualified attorney."
+- This is an attorney advertising requirement — never omit it.
+- Do not include legal disclaimers in LinkedIn or X posts (they would reduce engagement), but never give specific legal advice in social posts either.
+
 Quality bar:
 - Every section must provide value — no filler paragraphs.
 - Claims must be grounded in the source material. Never fabricate case names, statutes, or citations.
-- Include a disclaimer paragraph noting this is informational content, not legal advice.
 - Blog body should have 3-5 well-developed sections, each with a clear purpose.
+- The CTA must feel like a natural extension of the content, not an afterthought.
 
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
@@ -54,8 +68,11 @@ Return JSON with this exact structure:
 Requirements:
 - 800-1200 words total across all blog_body sections
 - 3-5 sections in blog_body, each with a distinct purpose (e.g., background, analysis, impact, next steps)
-- Final section must include a disclaimer: this content is for informational purposes only and does not constitute legal advice
+- Final section must include a relevant CTA linking to https://fintechlaw.ai/contact or https://fintechlaw.ai/newsletter
+- Final section must include the full attorney advertising disclaimer: "This content is provided by FinTech Law LLC for informational purposes only and does not constitute legal advice. No attorney-client relationship is formed by reading this content. If you need legal advice, please contact a qualified attorney."
 - No fabricated citations, case names, or statutes
 - No specific legal advice or recommendations for particular situations
+- LinkedIn post must end with a CTA (read full article, visit site, or DM for questions)
+- X thread final tweet must link back to the blog
 - JSON only — no text outside the JSON object`;
 }
