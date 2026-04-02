@@ -55,7 +55,7 @@ export async function runDrafting(supabase, config) {
         model: config.ANTHROPIC_MODEL,
         system: DRAFTER_SYSTEM_PROMPT,
         user: buildDrafterUserPrompt({ topic, seoKeywords: DEFAULT_SEO_KEYWORDS, revisionInstructions }),
-        maxTokens: 2800,
+        maxTokens: 8000,
         temperature: 0.3,
       });
     } catch (anthropicErr) {
