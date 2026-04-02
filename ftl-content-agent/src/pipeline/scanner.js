@@ -46,7 +46,17 @@ export async function runSourceScan(supabase) {
       }
 
       stats.feedsProcessed++;
-      const items = feed.items ?? [];
+      const allItems = feed.items ?? [];
+
+      // Limit to 10 most recent items per feed, published within last 48 hours
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const items = allItems
+        .filter((item) => {
+          const pubDate = item.pubDate || item.isoDate;
+          if (!pubDate) return true; // include items without dates
+          return new Date(pubDate) >= cutoff;
+        })
+        .slice(0, 10);
 
       for (const item of items) {
         const sourceUrl = normalizeUrl(itemLink(item));

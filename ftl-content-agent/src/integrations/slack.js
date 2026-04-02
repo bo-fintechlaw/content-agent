@@ -27,10 +27,16 @@ export async function sendReviewMessage(client, channel, payload) {
     : null;
   const xPreview = payload.xPost || null;
 
+  const verdict = payload.verdict ?? (payload.scores ? 'PASS' : '');
+  const composite = payload.composite ?? '';
+  const statusLabel = verdict === 'PASS'
+    ? 'Ready for approval'
+    : 'Needs review — see judge notes';
+
   const blocks = [
     {
       type: 'header',
-      text: { type: 'plain_text', text: 'Content Ready for Review', emoji: true },
+      text: { type: 'plain_text', text: 'New Blog Draft for Review', emoji: true },
     },
     { type: 'divider' },
     {
@@ -42,15 +48,26 @@ export async function sendReviewMessage(client, channel, payload) {
       text: {
         type: 'mrkdwn',
         text:
-          `*Judge Scores*\n` +
+          `*Composite Score:* ${composite}/10  |  *Status:* ${statusLabel}\n` +
           `Accuracy: ${payload.scores.accuracy}/10  |  ` +
           `Engagement: ${payload.scores.engagement}/10  |  ` +
           `SEO: ${payload.scores.seo}/10\n` +
           `Voice: ${payload.scores.voice}/10  |  ` +
-          `Tone: ${payload.scores.tone}/10`,
+          `Structure: ${payload.scores.structure ?? 'N/A'}/10`,
       },
     },
   ];
+
+  // Judge notes for drafts that did not fully pass
+  if (payload.revisionNotes && Array.isArray(payload.revisionNotes) && payload.revisionNotes.length) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Judge Notes:*\n${payload.revisionNotes.map(n => `- ${truncate(n, 200)}`).join('\n')}`,
+      },
+    });
+  }
 
   // Blog body preview
   if (bodyPreview) {
