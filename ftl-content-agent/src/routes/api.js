@@ -5,7 +5,9 @@ import { runTopicRanking } from '../pipeline/ranker.js';
 import { runSourceScan } from '../pipeline/scanner.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { runSocialPosting } from '../pipeline/social-poster.js';
+import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { runOrchestration } from '../pipeline/orchestrator.js';
+import { createSlackClient, sendSocialReviewMessage } from '../integrations/slack.js';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
 
@@ -190,6 +192,33 @@ export function createApiRouter(supabaseClient, config) {
       res.json({ ok: true, ...result });
     } catch (error) {
       fail('GET /api/social-now', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  router.post('/revise-social', async (req, res) => {
+    start('POST /api/revise-social');
+    try {
+      const { draftId, feedback } = req.body ?? {};
+      if (!draftId || !feedback) {
+        return res.status(400).json({ ok: false, error: 'Missing draftId or feedback' });
+      }
+
+      const revised = await reviseSocialContent(supabaseClient, config, draftId, feedback);
+
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendSocialReviewMessage(slack, config.SLACK_CHANNEL_ID, {
+        draftId,
+        blogTitle: revised.blogTitle,
+        linkedinPost: revised.linkedinPost,
+        xPost: revised.xPost,
+        xThread: revised.xThread,
+      });
+
+      success('POST /api/revise-social', { draftId });
+      res.json({ ok: true, draftId, revised });
+    } catch (error) {
+      fail('POST /api/revise-social', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });
