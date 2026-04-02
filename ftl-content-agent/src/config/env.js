@@ -31,6 +31,7 @@ const OPTIONAL_STRING = [
   'AUTO_PUBLISH_ON_REVIEW',
   'JUDGE_FALLBACK_PASS_ON_ANTHROPIC_UNAVAILABLE',
   'DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE',
+  'NETLIFY_BUILD_HOOK',
 ];
 
 /**
@@ -130,6 +131,8 @@ export function validateEnv() {
       ? true
       : ['1', 'true', 'yes', 'y'].includes(String(drafterFallbackRaw).toLowerCase());
   config.DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE = drafterFallback;
+
+  config.NETLIFY_BUILD_HOOK = optional.NETLIFY_BUILD_HOOK || '';
 
   const orchestrationMaxPublishRaw = process.env.ORCHESTRATION_MAX_PUBLISH ?? '2';
   const orchestrationMaxPublish = Number.parseInt(orchestrationMaxPublishRaw, 10);

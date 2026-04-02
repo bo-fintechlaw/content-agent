@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { createSanityClient, createAndPublishBlogFromDraft } from '../integrations/sanity.js';
 import { CircuitBreaker } from '../utils/circuit-breaker.js';
 import { fail, start, success } from '../utils/logger.js';
@@ -60,6 +61,17 @@ export async function publishDraftToSanity(supabase, config, draftId, options = 
       .update({ status: 'published', updated_at: nowIso })
       .eq('id', draft.topic_id);
     if (updTopicErr) throw new Error(updTopicErr.message);
+  }
+
+  // Trigger Netlify rebuild so the new post appears on the live site
+  if (published && config.NETLIFY_BUILD_HOOK) {
+    try {
+      await axios.post(config.NETLIFY_BUILD_HOOK);
+      success('publishDraftToSanity:netlifyRebuild', { draftId });
+    } catch (netlifyErr) {
+      // Non-fatal — the post is in Sanity, rebuild can be triggered manually
+      fail('publishDraftToSanity:netlifyRebuild', netlifyErr);
+    }
   }
 
   success('publishDraftToSanity', { draftId, docId });
