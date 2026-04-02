@@ -20,12 +20,8 @@ export async function sendReviewMessage(client, channel, payload) {
   start('sendReviewMessage');
   const channelId = normalizeChannelId(channel);
 
-  // Build blog body preview (first ~500 chars)
+  // Build blog body preview (first ~500 chars) — blog review only, no social previews
   const bodyPreview = buildBodyPreview(payload.blogBody, 500);
-  const linkedinPreview = payload.linkedinPost
-    ? truncate(payload.linkedinPost, 300)
-    : null;
-  const xPreview = payload.xPost || null;
 
   const verdict = payload.verdict ?? (payload.scores ? 'PASS' : '');
   const composite = payload.composite ?? '';
@@ -77,29 +73,6 @@ export async function sendReviewMessage(client, channel, payload) {
       text: {
         type: 'mrkdwn',
         text: `*Blog Preview*\n${bodyPreview}`,
-      },
-    });
-  }
-
-  // LinkedIn preview
-  if (linkedinPreview) {
-    blocks.push({ type: 'divider' });
-    blocks.push({
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*LinkedIn Post*\n${linkedinPreview}`,
-      },
-    });
-  }
-
-  // X preview
-  if (xPreview) {
-    blocks.push({
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*X Post*\n${xPreview}`,
       },
     });
   }
