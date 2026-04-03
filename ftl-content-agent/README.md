@@ -13,11 +13,31 @@ npm install
 npm start
 ```
 
+## Testing
+
+```bash
+npm test                # run full test suite (vitest) — run before every push
+npm run test:watch      # watch mode during development
+npm run test:simulate   # offline pipeline simulation with realistic mock data
+```
+
+Tests live alongside source files (`src/**/*.test.js`). See [CLAUDE.md](../CLAUDE.md) for detailed testing guidelines.
+
+### Full API simulation (requires ANTHROPIC_API_KEY)
+
+```bash
+ANTHROPIC_API_KEY=sk-... node scripts/simulate-pipeline.mjs
+```
+
+Runs the complete Draft → Judge → Portable Text pipeline against the Anthropic API and validates formatting output.
+
 ## Verification
 
 | Check | Expected |
 |--------|----------|
 | `npm install` | Completes without errors |
+| `npm test` | All tests pass |
+| `npm run test:simulate` | All formatting checks pass |
 | `npm start` | Exits with a clear missing-variable message if `.env` is incomplete; otherwise listens on `PORT` |
 | `GET /health` | `{ "status": "ok", "timestamp": "<ISO8601>" }` |
 | `GET /api/health` | Same `status` + `timestamp`, plus `uptimeSeconds` and `database` (503 if Supabase unreachable or migrations missing) |

@@ -8,6 +8,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:simulate": "node scripts/simulate-pipeline-offline.mjs",
     "linkedin:exchange": "node scripts/exchange-linkedin-token.mjs"
   },
   "engines": {
@@ -27,6 +30,7 @@
     "rss-parser": "^3.13.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "vitest": "^4.1.2"
   }
 }

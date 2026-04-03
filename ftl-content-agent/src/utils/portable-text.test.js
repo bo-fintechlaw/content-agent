@@ -1,136 +1,189 @@
-import { markdownToPortableText, parseInlineFormatting } from './portable-text.js';
+import { describe, it, expect } from 'vitest';
+import { markdownToPortableText, parseInlineFormatting, blogSectionsToMainContent } from './portable-text.js';
 
-function assert(condition, message) {
-  if (!condition) {
-    console.error(`FAIL: ${message}`);
-    process.exitCode = 1;
-  } else {
-    console.log(`PASS: ${message}`);
-  }
-}
+// ─── parseInlineFormatting ──────────────────────────────────────────────
 
-// --- parseInlineFormatting tests ---
+describe('parseInlineFormatting', () => {
+  it('returns a single plain span for unformatted text', () => {
+    const { children, markDefs } = parseInlineFormatting('plain text');
+    expect(children).toHaveLength(1);
+    expect(children[0].text).toBe('plain text');
+    expect(children[0].marks).toEqual([]);
+    expect(markDefs).toHaveLength(0);
+  });
 
-{
-  const { children, markDefs } = parseInlineFormatting('plain text');
-  assert(children.length === 1, 'plain text: one span');
-  assert(children[0].text === 'plain text', 'plain text: correct text');
-  assert(children[0].marks.length === 0, 'plain text: no marks');
-  assert(markDefs.length === 0, 'plain text: no markDefs');
-}
+  it('parses bold text (**...**)', () => {
+    const { children } = parseInlineFormatting('**bold** text');
+    expect(children).toHaveLength(2);
+    expect(children[0].text).toBe('bold');
+    expect(children[0].marks).toContain('strong');
+    expect(children[1].text).toBe(' text');
+    expect(children[1].marks).toEqual([]);
+  });
 
-{
-  const { children } = parseInlineFormatting('**bold** text');
-  assert(children.length === 2, 'bold: two spans');
-  assert(children[0].text === 'bold', 'bold: correct bold text');
-  assert(children[0].marks.includes('strong'), 'bold: has strong mark');
-  assert(children[1].text === ' text', 'bold: trailing plain text');
-  assert(children[1].marks.length === 0, 'bold: trailing has no marks');
-}
+  it('parses italic text (*...*)', () => {
+    const { children } = parseInlineFormatting('*italic* word');
+    expect(children).toHaveLength(2);
+    expect(children[0].text).toBe('italic');
+    expect(children[0].marks).toContain('em');
+  });
 
-{
-  const { children } = parseInlineFormatting('*italic* word');
-  assert(children.length === 2, 'italic: two spans');
-  assert(children[0].text === 'italic', 'italic: correct text');
-  assert(children[0].marks.includes('em'), 'italic: has em mark');
-}
+  it('parses links [text](url)', () => {
+    const { children, markDefs } = parseInlineFormatting('[SEC](https://sec.gov) issued');
+    expect(markDefs).toHaveLength(1);
+    expect(markDefs[0]._type).toBe('link');
+    expect(markDefs[0].href).toBe('https://sec.gov');
+    expect(children).toHaveLength(2);
+    expect(children[0].text).toBe('SEC');
+    expect(children[0].marks).toContain(markDefs[0]._key);
+    expect(children[1].text).toBe(' issued');
+  });
 
-{
-  const { children, markDefs } = parseInlineFormatting('[SEC](https://sec.gov) issued');
-  assert(markDefs.length === 1, 'link: one markDef');
-  assert(markDefs[0]._type === 'link', 'link: markDef type is link');
-  assert(markDefs[0].href === 'https://sec.gov', 'link: correct href');
-  assert(children.length === 2, 'link: two spans');
-  assert(children[0].text === 'SEC', 'link: correct link text');
-  assert(children[0].marks.includes(markDefs[0]._key), 'link: span references markDef key');
-  assert(children[1].text === ' issued', 'link: trailing text');
-}
+  it('parses bold link (**[text](url)**)', () => {
+    const { children, markDefs } = parseInlineFormatting('**[Bold Link](https://example.com)** after');
+    expect(children).toHaveLength(2);
+    expect(children[0].marks).toContain('strong');
+    const linkDef = markDefs.find((d) => d._type === 'link');
+    expect(linkDef).toBeTruthy();
+    expect(children[0].marks).toContain(linkDef._key);
+  });
 
-{
-  const { children, markDefs } = parseInlineFormatting('**[Bold Link](https://example.com)** after');
-  assert(children.length === 2, 'bold link: two spans');
-  assert(children[0].marks.includes('strong'), 'bold link: has strong');
-  assert(markDefs.length >= 1, 'bold link: has markDef');
-  const linkDef = markDefs.find((d) => d._type === 'link');
-  assert(linkDef, 'bold link: has link markDef');
-  assert(children[0].marks.includes(linkDef._key), 'bold link: span has link mark');
-}
+  it('parses link inside bold (**See [report](url) for details**)', () => {
+    const { children, markDefs } = parseInlineFormatting('**See [this report](https://sec.gov) for details**');
+    const linkDef = markDefs.find((d) => d._type === 'link');
+    expect(linkDef).toBeTruthy();
+    const linkSpan = children.find((c) => c.text === 'this report');
+    expect(linkSpan.marks).toContain('strong');
+    expect(linkSpan.marks).toContain(linkDef._key);
+  });
 
-{
-  const { children } = parseInlineFormatting('**Bold** and [link](url) in text');
-  assert(children.length === 4, 'mixed: four spans (bold, " and ", link, " in text")');
-  assert(children[0].marks.includes('strong'), 'mixed: first span is bold');
-  assert(children[1].text === ' and ', 'mixed: plain text between');
-}
+  it('handles mixed bold, link, and plain text', () => {
+    const { children } = parseInlineFormatting('**Bold** and [link](url) in text');
+    expect(children).toHaveLength(4);
+    expect(children[0].marks).toContain('strong');
+    expect(children[1].text).toBe(' and ');
+    expect(children[1].marks).toEqual([]);
+  });
 
-// --- markdownToPortableText tests ---
+  it('does not create italic for spaced asterisks (e.g. 3 * 4 = 12)', () => {
+    const { children } = parseInlineFormatting('Use 3 * 4 = 12 for the calculation');
+    // Should be a single plain span — the spaced asterisks should not match italic
+    expect(children).toHaveLength(1);
+    expect(children[0].marks).toEqual([]);
+  });
+});
 
-{
-  const blocks = markdownToPortableText('Hello world');
-  assert(blocks.length === 1, 'simple paragraph: one block');
-  assert(blocks[0].style === 'normal', 'simple paragraph: normal style');
-  assert(!blocks[0].listItem, 'simple paragraph: no listItem');
-}
+// ─── markdownToPortableText ─────────────────────────────────────────────
 
-{
-  const blocks = markdownToPortableText('- item one\n- item two\n- item three');
-  assert(blocks.length === 3, 'bullet list: three blocks');
-  assert(blocks[0].listItem === 'bullet', 'bullet list: listItem is bullet');
-  assert(blocks[0].level === 1, 'bullet list: level is 1');
-  assert(blocks[0].children[0].text === 'item one', 'bullet list: correct text');
-  assert(blocks[2].children[0].text === 'item three', 'bullet list: third item correct');
-}
+describe('markdownToPortableText', () => {
+  it('creates a single normal block for a plain paragraph', () => {
+    const blocks = markdownToPortableText('Hello world');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].style).toBe('normal');
+    expect(blocks[0].listItem).toBeUndefined();
+  });
 
-{
-  const blocks = markdownToPortableText('1. first\n2. second\n3. third');
-  assert(blocks.length === 3, 'numbered list: three blocks');
-  assert(blocks[0].listItem === 'number', 'numbered list: listItem is number');
-  assert(blocks[0].level === 1, 'numbered list: level is 1');
-  assert(blocks[0].children[0].text === 'first', 'numbered list: correct text');
-}
+  it('creates bullet list blocks for - prefixed lines', () => {
+    const blocks = markdownToPortableText('- item one\n- item two\n- item three');
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0].listItem).toBe('bullet');
+    expect(blocks[0].level).toBe(1);
+    expect(blocks[0].children[0].text).toBe('item one');
+    expect(blocks[2].children[0].text).toBe('item three');
+  });
 
-{
-  const blocks = markdownToPortableText('Paragraph one.\n\n- bullet a\n- bullet b\n\nParagraph two.');
-  assert(blocks.length === 4, 'mixed content: 1 para + 2 bullets + 1 para = 4 blocks');
-  assert(!blocks[0].listItem, 'mixed: first is paragraph');
-  assert(blocks[1].listItem === 'bullet', 'mixed: second is bullet');
-  assert(blocks[2].listItem === 'bullet', 'mixed: third is bullet');
-  assert(!blocks[3].listItem, 'mixed: fourth is paragraph');
-}
+  it('creates numbered list blocks for digit-dot prefixed lines', () => {
+    const blocks = markdownToPortableText('1. first\n2. second\n3. third');
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0].listItem).toBe('number');
+    expect(blocks[0].level).toBe(1);
+    expect(blocks[0].children[0].text).toBe('first');
+  });
 
-{
-  const blocks = markdownToPortableText('- **Bold item** with [link](https://example.com)');
-  assert(blocks.length === 1, 'formatted bullet: one block');
-  assert(blocks[0].listItem === 'bullet', 'formatted bullet: is bullet');
-  assert(blocks[0].children.length >= 2, 'formatted bullet: multiple spans');
-  assert(blocks[0].children[0].marks.includes('strong'), 'formatted bullet: has bold');
-  assert(blocks[0].markDefs.length >= 1, 'formatted bullet: has link markDef');
-}
+  it('handles mixed paragraphs and lists', () => {
+    const blocks = markdownToPortableText('Paragraph one.\n\n- bullet a\n- bullet b\n\nParagraph two.');
+    expect(blocks).toHaveLength(4);
+    expect(blocks[0].listItem).toBeUndefined();
+    expect(blocks[1].listItem).toBe('bullet');
+    expect(blocks[2].listItem).toBe('bullet');
+    expect(blocks[3].listItem).toBeUndefined();
+  });
 
-{
-  const blocks = markdownToPortableText('**Key takeaway.** The SEC [issued a fine](https://sec.gov/fine) of $150,000.');
-  assert(blocks.length === 1, 'bold-lead takeaway: one block');
-  const spans = blocks[0].children;
-  assert(spans[0].marks.includes('strong'), 'bold-lead: first span is bold');
-  assert(blocks[0].markDefs.length === 1, 'bold-lead: has link markDef');
-}
+  it('preserves inline formatting in list items', () => {
+    const blocks = markdownToPortableText('- **Bold item** with [link](https://example.com)');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].listItem).toBe('bullet');
+    expect(blocks[0].children[0].marks).toContain('strong');
+    expect(blocks[0].markDefs).toHaveLength(1);
+  });
 
-{
-  // Edge case: asterisks in math should not create italic (not a perfect guarantee, but test the simple case)
-  const { children } = parseInlineFormatting('Use 3 * 4 = 12 for the calculation');
-  // This may or may not match italic depending on regex — document the behavior
-  console.log('NOTE: "3 * 4 = 12" parsing:', children.map((c) => `"${c.text}" [${c.marks}]`).join(', '));
-}
+  it('handles bold-lead takeaway pattern', () => {
+    const blocks = markdownToPortableText(
+      '**Key takeaway.** The SEC [issued a fine](https://sec.gov/fine) of $150,000.'
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].children[0].marks).toContain('strong');
+    expect(blocks[0].markDefs).toHaveLength(1);
+  });
 
-{
-  // Empty input
-  const blocks = markdownToPortableText('');
-  assert(blocks.length === 0, 'empty input: no blocks');
-}
+  it('returns empty array for empty input', () => {
+    expect(markdownToPortableText('')).toHaveLength(0);
+  });
 
-{
-  const blocks = markdownToPortableText(null);
-  assert(blocks.length === 0, 'null input: no blocks');
-}
+  it('returns empty array for null input', () => {
+    expect(markdownToPortableText(null)).toHaveLength(0);
+  });
 
-console.log('\nAll tests complete.');
+  it('returns empty array for undefined input', () => {
+    expect(markdownToPortableText(undefined)).toHaveLength(0);
+  });
+
+  it('handles * prefix bullet lists', () => {
+    const blocks = markdownToPortableText('* item one\n* item two');
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].listItem).toBe('bullet');
+  });
+
+  it('collapses internal newlines in regular paragraphs', () => {
+    const blocks = markdownToPortableText('Line one\nLine two\nLine three');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].children[0].text).toBe('Line one Line two Line three');
+  });
+});
+
+// ─── blogSectionsToMainContent ──────────────────────────────────────────
+
+describe('blogSectionsToMainContent', () => {
+  it('converts blog_body sections to pageComponentObjects', () => {
+    const blogBody = [
+      { title: 'Section One', body: '**Bold** paragraph.', has_background: false },
+      { title: 'Key Takeaways', body: '- takeaway one\n- takeaway two', has_background: true },
+    ];
+    const result = blogSectionsToMainContent(blogBody);
+    expect(result).toHaveLength(2);
+
+    // Section one
+    expect(result[0]._type).toBe('pageComponentObject');
+    expect(result[0].title).toBe('Section One');
+    expect(result[0].hasBackgroundColor).toBe(false);
+    expect(result[0].body[0].children[0].marks).toContain('strong');
+
+    // Key takeaways
+    expect(result[1].title).toBe('Key Takeaways');
+    expect(result[1].hasBackgroundColor).toBe(true);
+    expect(result[1].body).toHaveLength(2);
+    expect(result[1].body[0].listItem).toBe('bullet');
+  });
+
+  it('handles string input as a single section', () => {
+    const result = blogSectionsToMainContent('Plain text body');
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe('Section');
+  });
+
+  it('handles empty/invalid input', () => {
+    expect(blogSectionsToMainContent(null)).toEqual([]);
+    expect(blogSectionsToMainContent(undefined)).toEqual([]);
+    expect(blogSectionsToMainContent(42)).toEqual([]);
+  });
+});
