@@ -46,7 +46,7 @@ export async function runJudging(supabase, config) {
 
     // Normalize scores — handle both old format (number) and new format ({ score, rationale })
     const normalizedScores = {};
-    for (const key of ['accuracy', 'engagement', 'seo', 'voice', 'structure']) {
+    for (const key of ['accuracy', 'engagement', 'seo', 'voice', 'structure', 'formatting']) {
       const raw = result.scores?.[key];
       normalizedScores[key] = typeof raw === 'number' ? raw : (raw?.score ?? 0);
     }

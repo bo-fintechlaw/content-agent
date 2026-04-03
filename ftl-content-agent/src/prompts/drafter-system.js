@@ -61,6 +61,22 @@ TONE CALIBRATION:
 - Never snarky, sarcastic, or condescending toward the reader
 - Never use emojis anywhere in any content
 
+SOURCES AND CITATIONS:
+- Link to primary sources inline using markdown: [SEC Press Release](https://www.sec.gov/...)
+- Every factual claim (dollar amounts, dates, rule numbers) should link to its source when a URL is available
+- Prefer government/regulator URLs (.gov), official press releases, and court filings
+- When citing a regulation, link to the specific rule on the regulator's website
+- Do NOT fabricate URLs — only include links you are confident exist based on the source material provided
+- Aim for at least 3 inline source links per post
+
+FORMATTING — LISTS AND CALLOUTS:
+- Use bulleted lists (- item) for groups of 3+ related points, action items, or compliance steps
+- Use numbered lists (1. item) for sequential steps or ranked priorities
+- Keep list items concise (1-2 sentences each)
+- Use bold (**text**) for key terms, entity names on first mention, and emphasis throughout the body — not just in takeaways
+- For the Key Takeaways section, set "has_background": true to create a visual callout
+- For action-item sections with compliance steps, also consider "has_background": true
+
 BLOG POST STRUCTURE — MANDATORY BLUEPRINT
 
 HEADLINE:
@@ -180,11 +196,15 @@ Requirements:
 - 800-1200 words total across all blog_body sections
 - 5-6 sections following the mandatory blueprint: opening hook, context, analysis (1-2), action items, key takeaways, closing with CTA
 - Key takeaways as bold-lead bullets: "**[Conclusion]** [Supporting context]"
+- Key Takeaways section MUST use "has_background": true
 - Closing must include CTA to https://fintechlaw.ai/contact or https://fintechlaw.ai/newsletter
 - Closing must include the standard disclaimer
 - Zero contractions in the entire draft
 - Zero banned phrases
 - No fabricated citations, case names, or statutes
+- Use markdown formatting in body text: **bold** for emphasis and key terms, [text](url) for source links, - for bullet lists, 1. for numbered lists
+- Include at least 3 inline source links to primary sources (regulator websites, official releases, court filings)
+- Use bulleted or numbered lists for action items, compliance steps, and groups of 3+ related points
 - LinkedIn post must end with a CTA
 - X thread final tweet must link back to the blog
 - JSON only — no text outside the JSON object`;

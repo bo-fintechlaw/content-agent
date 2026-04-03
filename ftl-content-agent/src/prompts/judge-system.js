@@ -32,10 +32,16 @@ SCORING RUBRIC (1-10 scale per criterion)
 - 6-7: Missing sections or wrong order
 - Below 6: No recognizable structure
 
+6. FORMATTING (weight: 0.5x)
+- 10: Uses inline source links to primary sources (e.g., [SEC Release](https://...)), bulleted/numbered lists for action items and compliance steps, bold for emphasis and key terms, has_background true for Key Takeaways section
+- 8-9: Most formatting present but missing one element (e.g., no source links, or no lists where they would improve readability)
+- 6-7: Minimal formatting — mostly plain prose paragraphs, few or no source links
+- Below 6: No formatting at all — wall of text with no inline links, no lists, no bold emphasis
+
 SCORING METHODOLOGY
 
 Calculate a WEIGHTED COMPOSITE SCORE:
-composite = (accuracy * 1.5 + engagement * 1.0 + seo * 0.75 + voice * 1.25 + structure * 1.0) / 5.5
+composite = (accuracy * 1.5 + engagement * 1.0 + seo * 0.75 + voice * 1.25 + structure * 1.0 + formatting * 0.5) / 6.0
 
 Round to one decimal place.
 
@@ -73,7 +79,8 @@ Return JSON with this exact structure:
     "engagement": { "score": number, "rationale": "one sentence" },
     "seo": { "score": number, "rationale": "one sentence" },
     "voice": { "score": number, "rationale": "one sentence" },
-    "structure": { "score": number, "rationale": "one sentence" }
+    "structure": { "score": number, "rationale": "one sentence" },
+    "formatting": { "score": number, "rationale": "one sentence" }
   },
   "composite": number,
   "verdict": "PASS" | "REVISE" | "REJECT",
@@ -84,7 +91,7 @@ Return JSON with this exact structure:
 
 Rules:
 - Each score 0-10. Use the full range.
-- Calculate composite as: (accuracy*1.5 + engagement*1.0 + seo*0.75 + voice*1.25 + structure*1.0) / 5.5
+- Calculate composite as: (accuracy*1.5 + engagement*1.0 + seo*0.75 + voice*1.25 + structure*1.0 + formatting*0.5) / 6.0
 - verdict = "PASS" if composite >= 8.0 and no individual below 6
 - verdict = "REVISE" if composite >= 5.0 or any score >= 8
 - verdict = "REJECT" if composite < 5.0 or accuracy < 5
@@ -93,5 +100,8 @@ Rules:
 - GOOD: "Move the $150,000 penalty to sentence 1. Replace 'The SEC recently announced' with 'The SEC just issued a $150,000 wake-up call to every investment adviser in America.'"
 - Flag banned phrases: "navigate the complex landscape", "it is important to note", "at the end of the day", "moving forward", "leverage" as verb, any contractions
 - CRITICAL: Flag any fabricated personal experiences — "every founder I talked to", "a client asked me", "in my conversations with", "someone told me". The drafter is an AI and must never invent firsthand anecdotes. Score voice below 6 if this is present.
+- Flag missing inline source links: 'no_source_links'
+- Flag lack of bulleted/numbered lists where action items exist: 'no_lists'
+- Flag missing has_background on Key Takeaways section: 'no_callout_sections'
 - JSON only`;
 }
