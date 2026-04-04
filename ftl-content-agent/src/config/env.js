@@ -33,6 +33,8 @@ const OPTIONAL_STRING = [
   'DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE',
   'NETLIFY_BUILD_HOOK',
   'XAI_API_KEY',
+  'NOTION_MCP_URL',
+  'NOTION_MCP_AUTH_TOKEN',
 ];
 
 /**
@@ -79,6 +81,9 @@ export function validateEnv() {
     OPTIONAL_STRING.map((k) => [k, process.env[k] ?? ''])
   );
 
+  const notionMcpUrl =
+    optional.NOTION_MCP_URL?.trim() || 'http://localhost:3100/mcp';
+
   const config = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL: optional.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
@@ -105,6 +110,8 @@ export function validateEnv() {
     SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID,
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
+    NOTION_MCP_URL: notionMcpUrl,
+    NOTION_MCP_AUTH_TOKEN: optional.NOTION_MCP_AUTH_TOKEN?.trim() ?? '',
     PORT: port,
     NODE_ENV: nodeEnv,
   };
