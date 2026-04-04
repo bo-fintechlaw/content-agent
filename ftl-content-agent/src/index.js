@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cron from 'node-cron';
 import { validateEnv } from './config/env.js';
+import { initializeMcpConnections } from '../dist/mcp/mcpManager.js';
 import { createSupabaseClient } from './db/supabase.js';
 import { createApiRouter } from './routes/api.js';
 import { createSlackWebhookRouter } from './routes/webhooks.js';
@@ -17,6 +18,13 @@ async function main() {
   start('main');
 
   const config = validateEnv();
+
+  void initializeMcpConnections({
+    NOTION_MCP_URL: config.NOTION_MCP_URL,
+    NOTION_MCP_AUTH_TOKEN: config.NOTION_MCP_AUTH_TOKEN,
+  }).catch((err) => {
+    console.warn('[MCP] Notion MCP initialization error:', err);
+  });
 
   if (config.LINKEDIN_REDIRECT_URI?.startsWith('https://localhost')) {
     console.warn(

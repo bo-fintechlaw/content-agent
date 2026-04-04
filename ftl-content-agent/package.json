@@ -6,6 +6,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "build": "tsc",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "linkedin:exchange": "node scripts/exchange-linkedin-token.mjs"
@@ -29,6 +30,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "typescript": "^5.9.3"
   }
 }

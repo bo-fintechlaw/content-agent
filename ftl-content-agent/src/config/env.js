@@ -35,6 +35,9 @@ const OPTIONAL_STRING = [
   'XAI_API_KEY',
   'NOTION_MCP_URL',
   'NOTION_MCP_AUTH_TOKEN',
+  'NOTION_DB_CONTENT_CALENDAR',
+  'NOTION_DB_REGULATORY_TRACKER',
+  'NOTION_DB_ACTIVITY_LOG',
 ];
 
 /**
@@ -112,6 +115,10 @@ export function validateEnv() {
     SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
     NOTION_MCP_URL: notionMcpUrl,
     NOTION_MCP_AUTH_TOKEN: optional.NOTION_MCP_AUTH_TOKEN?.trim() ?? '',
+    NOTION_DB_CONTENT_CALENDAR: optional.NOTION_DB_CONTENT_CALENDAR?.trim() ?? '',
+    NOTION_DB_REGULATORY_TRACKER:
+      optional.NOTION_DB_REGULATORY_TRACKER?.trim() ?? '',
+    NOTION_DB_ACTIVITY_LOG: optional.NOTION_DB_ACTIVITY_LOG?.trim() ?? '',
     PORT: port,
     NODE_ENV: nodeEnv,
   };
