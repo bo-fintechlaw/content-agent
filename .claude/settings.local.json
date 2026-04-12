@@ -25,7 +25,23 @@
       "Bash(railway up:*)",
       "Bash(railway logs:*)",
       "Bash(railway domain:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(grep -E \"\\\\.\\(js|ts|json|md|env|config|yaml|yml\\)$\")",
+      "WebSearch",
+      "WebFetch(domain:ftl-content-agent-production.up.railway.app)",
+      "WebFetch(domain:fintechlaw.ai)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\)['drafts'][0]; print\\(f'Title: {d[\\\\\"blog_title\\\\\"]}'\\); print\\(f'Sanity ID: {d[\\\\\"sanity_document_id\\\\\"]}'\\); print\\(f'Published: {d[\\\\\"published_at\\\\\"]}'\\); print\\(f'Slug: {d[\\\\\"blog_slug\\\\\"]}'\\); print\\(f'Draft ID: {d[\\\\\"id\\\\\"]}'\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Uptime: {d[\\\\\"uptimeSeconds\\\\\"]}s'\\)\")",
+      "Bash(gh repo:*)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts|js\\)$\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('dependencies',{}\\), indent=2\\)\\)\")",
+      "Bash(npm install:*)",
+      "WebFetch(domain:docs.x.ai)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

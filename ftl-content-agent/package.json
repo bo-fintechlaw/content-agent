@@ -6,10 +6,12 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "linkedin:exchange": "node scripts/exchange-linkedin-token.mjs"
+    "linkedin:exchange": "node scripts/exchange-linkedin-token.mjs",
+    "notion:mcp:test": "node scripts/test-notion-mcp.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -17,6 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@notionhq/client": "^5.16.0",
     "@sanity/client": "^6.28.0",
     "@slack/bolt": "^4.6.0",
     "@slack/web-api": "^7.8.0",
@@ -30,7 +33,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.5.2",
+    "jest": "^30.3.0",
     "nodemon": "^3.1.9",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.9.3"
   }
 }

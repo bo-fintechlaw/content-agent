@@ -35,6 +35,7 @@ const OPTIONAL_STRING = [
   'XAI_API_KEY',
   'NOTION_MCP_URL',
   'NOTION_MCP_AUTH_TOKEN',
+  'NOTION_TOKEN',
   'NOTION_DB_CONTENT_CALENDAR',
   'NOTION_DB_REGULATORY_TRACKER',
   'NOTION_DB_ACTIVITY_LOG',
@@ -85,7 +86,7 @@ export function validateEnv() {
   );
 
   const notionMcpUrl =
-    optional.NOTION_MCP_URL?.trim() || 'http://localhost:3100/mcp';
+    optional.NOTION_MCP_URL?.trim() || 'http://127.0.0.1:3100/mcp';
 
   const config = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -115,6 +116,7 @@ export function validateEnv() {
     SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
     NOTION_MCP_URL: notionMcpUrl,
     NOTION_MCP_AUTH_TOKEN: optional.NOTION_MCP_AUTH_TOKEN?.trim() ?? '',
+    NOTION_TOKEN: optional.NOTION_TOKEN?.trim() ?? '',
     NOTION_DB_CONTENT_CALENDAR: optional.NOTION_DB_CONTENT_CALENDAR?.trim() ?? '',
     NOTION_DB_REGULATORY_TRACKER:
       optional.NOTION_DB_REGULATORY_TRACKER?.trim() ?? '',
