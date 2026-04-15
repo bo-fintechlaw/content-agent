@@ -22,6 +22,8 @@ async function main() {
   void initializeMcpConnections({
     NOTION_MCP_URL: config.NOTION_MCP_URL,
     NOTION_MCP_AUTH_TOKEN: config.NOTION_MCP_AUTH_TOKEN,
+    SANITY_MCP_URL: config.SANITY_MCP_URL,
+    SANITY_API_TOKEN: config.SANITY_API_TOKEN,
   }).catch((err) => {
     console.warn('[MCP] Notion MCP initialization error:', err);
   });
