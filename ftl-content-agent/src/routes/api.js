@@ -383,7 +383,7 @@ export function createApiRouter(supabaseClient, config) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${esc(data.blog_title || 'Draft preview')}</title>
+    <title>${escHtml(data.blog_title || 'Draft preview')}</title>
     <style>
       body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem auto; max-width: 860px; line-height: 1.6; padding: 0 1rem; color: #111; }
       h1 { margin-bottom: 0.5rem; }
