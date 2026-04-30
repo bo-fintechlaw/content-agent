@@ -7,8 +7,16 @@ import { createSupabaseClient } from './db/supabase.js';
 import { createApiRouter } from './routes/api.js';
 import { createSlackWebhookRouter } from './routes/webhooks.js';
 import { runSourceScan } from './pipeline/scanner.js';
+import { runTopicRanking } from './pipeline/ranker.js';
+import { runDraftAndJudge } from './pipeline/production.js';
 import { runOrchestration } from './pipeline/orchestrator.js';
+import { runWeeklyReport } from './pipeline/weekly-report.js';
 import { registerLinkedInOAuthDevCallback } from './routes/linkedin-oauth.js';
+import {
+  createSlackClient,
+  sendDailyNoDraftNotification,
+  sendMondaySearchAndRankReport,
+} from './integrations/slack.js';
 import { fail, start, success } from './utils/logger.js';
 
 // Prefer project .env over inherited shell vars.
@@ -63,20 +71,70 @@ async function main() {
     });
   });
 
+  // ── Weekly scan + rank — Monday 6 AM ET ────────────────────────
+  // Pulls a full week of RSS content, then ranks the entire batch.
   cron.schedule(
-    '0 6 * * *',
+    '0 6 * * 1',
     async () => {
-      start('cron:dailySourceScan');
+      start('cron:weeklyScanAndRank');
       try {
-        await runSourceScan(supabaseClient);
-        success('cron:dailySourceScan');
+        const scan = await runSourceScan(supabaseClient);
+        success('cron:weeklyScanAndRank:scan', scan);
+        const rank = await runTopicRanking(supabaseClient, config);
+        success('cron:weeklyScanAndRank:rank', rank);
+        try {
+          const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+          await sendMondaySearchAndRankReport(slack, config.SLACK_CHANNEL_ID, {
+            scan,
+            rank,
+          });
+        } catch (slackErr) {
+          fail('cron:weeklyScanAndRank:slack', slackErr);
+        }
       } catch (e) {
-        fail('cron:dailySourceScan', e);
+        fail('cron:weeklyScanAndRank', e);
       }
     },
     { timezone: 'America/New_York' }
   );
 
+  // ── Daily content — 7 AM ET ───────────────────────────────────
+  // Picks the draft queue (revision first, else best ranked). Ranked rows must meet
+  // DAILY_PUBLISH_MIN_RELEVANCE (default 7). Then judges → Slack for approval (no auto-publish
+  // unless AUTO_PUBLISH_ON_REVIEW is set). For an extra post any time, use GET
+  // /api/start-production?topicId=...
+  cron.schedule(
+    '0 7 * * *',
+    async () => {
+      start('cron:dailyContent');
+      try {
+        const result = await runDraftAndJudge(supabaseClient, config, {
+          minRelevanceScore: config.DAILY_PUBLISH_MIN_RELEVANCE,
+          runKind: 'scheduled',
+        });
+        success('cron:dailyContent', result);
+        if (result.draft && !result.draft.drafted) {
+          try {
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendDailyNoDraftNotification(
+              slack,
+              config.SLACK_CHANNEL_ID,
+              result.draft
+            );
+          } catch (slackErr) {
+            fail('cron:dailyContent:slack', slackErr);
+          }
+        }
+      } catch (e) {
+        fail('cron:dailyContent', e);
+      }
+    },
+    { timezone: 'America/New_York' }
+  );
+
+  // ── Orchestrator — every 15 min ───────────────────────────────
+  // Lightweight: only publishes approved drafts + posts to social.
+  // No ranking/drafting/judging — those run on their own schedules.
   let orchestrationRunning = false;
   cron.schedule(
     '*/15 * * * *',
@@ -91,6 +149,21 @@ async function main() {
         fail('cron:orchestration', e);
       } finally {
         orchestrationRunning = false;
+      }
+    },
+    { timezone: 'America/New_York' }
+  );
+
+  // Weekly content report — Monday 9 AM ET
+  cron.schedule(
+    '0 9 * * 1',
+    async () => {
+      start('cron:weeklyReport');
+      try {
+        await runWeeklyReport(supabaseClient, config);
+        success('cron:weeklyReport');
+      } catch (e) {
+        fail('cron:weeklyReport', e);
       }
     },
     { timezone: 'America/New_York' }

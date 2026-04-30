@@ -1,29 +1,64 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
 import { createSlackClient, sendReviewMessage } from '../integrations/slack.js';
 import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from '../prompts/judge-system.js';
+import { extractHttpUrlsFromDraft, fetchAllCitationPreviews } from './citation-harvest.js';
+import { runCitationVerificationSubagent } from './citation-subagent.js';
 import { fail, start, success } from '../utils/logger.js';
 
-export async function runJudging(supabase, config) {
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Record<string, any>} config
+ * @param {{ draftId?: string } | undefined} [options]
+ * @description When `options.draftId` is set, judges only that row if it is not yet judged.
+ * Otherwise picks the oldest unjudged draft.
+ */
+export async function runJudging(supabase, config, options = {}) {
   start('runJudging');
   try {
-    const { data: draft, error } = await supabase
-      .from('content_drafts')
-      .select('*')
-      .is('judge_pass', null)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!draft) return { judged: false, reason: 'no_unjudged_drafts' };
+    const forceDraftId = String(options.draftId ?? '').trim();
+    let draft;
+    if (forceDraftId) {
+      const { data: d, error: dErr } = await supabase
+        .from('content_drafts')
+        .select('*')
+        .eq('id', forceDraftId)
+        .maybeSingle();
+      if (dErr) throw new Error(dErr.message);
+      if (!d) return { judged: false, reason: 'draft_not_found' };
+      if (d.judge_pass != null) {
+        return { judged: false, reason: 'already_judged', pass: d.judge_pass, draftId: d.id };
+      }
+      draft = d;
+    } else {
+      const { data, error } = await supabase
+        .from('content_drafts')
+        .select('*')
+        .is('judge_pass', null)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return { judged: false, reason: 'no_unjudged_drafts' };
+      draft = data;
+    }
 
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
+
+    const citedUrls = extractHttpUrlsFromDraft(draft);
+    const linkFetches = await fetchAllCitationPreviews(citedUrls);
+    const subagent = await runCitationVerificationSubagent(client, config, {
+      draft,
+      fetches: linkFetches,
+    });
+    const linkContext = { fetches: linkFetches, subagent };
+
     let result;
     try {
       result = await promptJson(client, {
         model: config.ANTHROPIC_MODEL,
         system: JUDGE_SYSTEM_PROMPT,
-        user: buildJudgeUserPrompt({ draft }),
-        maxTokens: 2000,
+        user: buildJudgeUserPrompt({ draft, linkContext }),
+        maxTokens: 3_200,
         temperature: 0.1,
       });
     } catch (anthropicErr) {
@@ -107,6 +142,8 @@ export async function runJudging(supabase, config) {
       .eq('id', draft.topic_id);
 
     if (sendToSlack && nextTopicStatus !== 'rejected') {
+      const baseUrl = String(config.APP_BASE_URL ?? '').trim().replace(/\/+$/, '');
+      const reviewUrl = baseUrl ? `${baseUrl}/api/drafts/${draft.id}/preview` : '';
       const slack = createSlackClient(config.SLACK_BOT_TOKEN);
       await sendReviewMessage(slack, config.SLACK_CHANNEL_ID, {
         draftId: draft.id,
@@ -118,6 +155,7 @@ export async function runJudging(supabase, config) {
         linkedinPost: draft.linkedin_post,
         xPost: draft.x_post,
         revisionNotes: isPassing ? null : result.revision_instructions,
+        reviewUrl,
       });
     }
 

@@ -202,6 +202,7 @@ jest.unstable_mockModule('axios', () => ({
 const { runTopicRanking } = await import('../../pipeline/ranker.js');
 const { runDrafting } = await import('../../pipeline/drafter.js');
 const { runJudging } = await import('../../pipeline/judge.js');
+const { runDraftAndJudge } = await import('../../pipeline/production.js');
 const { publishDraftToSanity } = await import('../../pipeline/publisher.js');
 const { runSocialPosting } = await import('../../pipeline/social-poster.js');
 const { promptJson } = await import('../../integrations/anthropic.js');
@@ -225,6 +226,7 @@ const config = {
   X_API_SECRET: 'x-secret',
   X_ACCESS_TOKEN: 'x-token',
   X_ACCESS_TOKEN_SECRET: 'x-token-secret',
+  ENABLE_X_POSTING: true,
   NETLIFY_BUILD_HOOK: 'https://api.netlify.com/build_hooks/test',
   ORCHESTRATION_MAX_SOCIAL: 3,
 };
@@ -508,5 +510,134 @@ describe('Pipeline Integration — Manual Topic Bypass', () => {
 
     // Claude should NOT have been called for manual topics
     expect(promptJson).not.toHaveBeenCalled();
+  });
+});
+
+describe('Pipeline Integration — topicId / draftId overrides', () => {
+  beforeEach(() => {
+    dbTopics = [];
+    dbDrafts = [];
+    idCounter = 1;
+    jest.clearAllMocks();
+  });
+
+  it('runDrafting with topicId targets that ranked topic, not the highest score in the queue', async () => {
+    const lowId = uuid();
+    const highId = uuid();
+    const now = new Date().toISOString();
+    dbTopics.push(
+      {
+        id: lowId,
+        title: 'Lower score topic',
+        summary: 's',
+        category: 'regulatory',
+        relevance_score: 3,
+        status: 'ranked',
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: highId,
+        title: 'Higher score topic',
+        summary: 's2',
+        category: 'regulatory',
+        relevance_score: 99,
+        status: 'ranked',
+        created_at: now,
+        updated_at: now,
+      }
+    );
+
+    const supabase = buildSupabaseMock();
+    (promptJson as jest.MockedFunction<any>).mockResolvedValueOnce(drafterResponse);
+
+    const draftResult = await runDrafting(supabase, config, { topicId: lowId });
+    expect(draftResult.drafted).toBe(true);
+    expect(dbDrafts[0].topic_id).toBe(lowId);
+  });
+
+  it('runJudging with draftId judges that draft even if another unjudged draft is older', async () => {
+    const topicA = uuid();
+    const topicB = uuid();
+    const olderDraft = uuid();
+    const newerDraft = uuid();
+    const now = new Date().toISOString();
+    dbTopics.push(
+      { id: topicA, title: 'A', summary: 's', category: 'regulatory', status: 'judging', created_at: now },
+      { id: topicB, title: 'B', summary: 's', category: 'regulatory', status: 'judging', created_at: now }
+    );
+    dbDrafts.push(
+      {
+        id: olderDraft,
+        topic_id: topicA,
+        blog_title: 'Old',
+        blog_body: [],
+        judge_pass: null,
+        created_at: '2020-01-01T00:00:00.000Z',
+      },
+      {
+        id: newerDraft,
+        topic_id: topicB,
+        blog_title: 'Newer',
+        blog_body: [],
+        judge_pass: null,
+        created_at: '2025-01-01T00:00:00.000Z',
+      }
+    );
+
+    const supabase = buildSupabaseMock();
+    (promptJson as jest.MockedFunction<any>).mockResolvedValueOnce(judgeResponse);
+
+    const result = await runJudging(supabase, config, { draftId: newerDraft });
+    expect(result.judged).toBe(true);
+    expect(result.draftId).toBe(newerDraft);
+    const oldD = dbDrafts.find((d) => d.id === olderDraft);
+    expect(oldD?.judge_pass).toBeNull();
+  });
+
+  it('runDrafting skips scheduled ranked topic below minRelevanceScore', async () => {
+    const t = uuid();
+    const now = new Date().toISOString();
+    dbTopics.push({
+      id: t,
+      title: 'Low score',
+      summary: 's',
+      category: 'regulatory',
+      relevance_score: 6.0,
+      status: 'ranked',
+      created_at: now,
+      updated_at: now,
+    });
+    const supabase = buildSupabaseMock();
+    const r = await runDrafting(supabase, config, { minRelevanceScore: 7.0 });
+    expect(r.drafted).toBe(false);
+    expect(r.reason).toBe('below_minimum_relevance_score');
+    expect(promptJson).not.toHaveBeenCalled();
+  });
+
+  it('runDraftAndJudge runs drafter+judger with matching draft for scheduled min score', async () => {
+    const t = uuid();
+    const now = new Date().toISOString();
+    dbTopics.push({
+      id: t,
+      title: 'Ok score',
+      summary: 's',
+      category: 'regulatory',
+      relevance_score: 8.0,
+      status: 'ranked',
+      created_at: now,
+      updated_at: now,
+    });
+    const supabase = buildSupabaseMock();
+    (promptJson as jest.MockedFunction<any>)
+      .mockResolvedValueOnce(drafterResponse)
+      .mockResolvedValueOnce(judgeResponse);
+
+    const r = await runDraftAndJudge(supabase, config, {
+      minRelevanceScore: 7.0,
+      runKind: 'scheduled',
+    });
+    expect(r.draft?.drafted).toBe(true);
+    expect(r.judge?.judged).toBe(true);
   });
 });

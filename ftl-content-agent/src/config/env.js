@@ -1,5 +1,10 @@
 import { fail, start, success } from '../utils/logger.js';
 
+/** xAI api.x.ai key for Grok Imagine (not Twitter’s X_API_KEY). Used by one-off scripts without full validateEnv. */
+export function xaiKeyFromProcessEnv() {
+  return (process.env.XAI_API_KEY || process.env.GROK_API_KEY || '').trim();
+}
+
 /** Must be present and non-empty (trimmed). */
 const REQUIRED_NON_EMPTY = [
   'ANTHROPIC_API_KEY',
@@ -28,11 +33,15 @@ const OPTIONAL_STRING = [
   'X_BEARER_TOKEN',
   'X_CLIENT_ID',
   'X_CLIENT_SECRET',
+  'ENABLE_X_POSTING',
   'AUTO_PUBLISH_ON_REVIEW',
   'JUDGE_FALLBACK_PASS_ON_ANTHROPIC_UNAVAILABLE',
   'DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE',
   'NETLIFY_BUILD_HOOK',
   'XAI_API_KEY',
+  'GROK_API_KEY',
+  'DAILY_PUBLISH_MIN_RELEVANCE',
+  'PRODUCTION_TRIGGER_SECRET',
   'NOTION_MCP_URL',
   'NOTION_MCP_AUTH_TOKEN',
   'SANITY_MCP_URL',
@@ -40,6 +49,7 @@ const OPTIONAL_STRING = [
   'NOTION_DB_CONTENT_CALENDAR',
   'NOTION_DB_REGULATORY_TRACKER',
   'NOTION_DB_ACTIVITY_LOG',
+  'APP_BASE_URL',
 ];
 
 /**
@@ -124,6 +134,7 @@ export function validateEnv() {
     NOTION_DB_REGULATORY_TRACKER:
       optional.NOTION_DB_REGULATORY_TRACKER?.trim() ?? '',
     NOTION_DB_ACTIVITY_LOG: optional.NOTION_DB_ACTIVITY_LOG?.trim() ?? '',
+    APP_BASE_URL: optional.APP_BASE_URL?.trim() ?? '',
     PORT: port,
     NODE_ENV: nodeEnv,
   };
@@ -153,7 +164,11 @@ export function validateEnv() {
   config.DRAFTER_FALLBACK_SIMPLE_ON_ANTHROPIC_UNAVAILABLE = drafterFallback;
 
   config.NETLIFY_BUILD_HOOK = optional.NETLIFY_BUILD_HOOK || '';
-  config.XAI_API_KEY = optional.XAI_API_KEY || '';
+  // xAI Grok (api.x.ai) for blog image generation. NOT the same as X (Twitter) X_API_KEY.
+  // Prefer XAI_API_KEY; GROK_API_KEY is an allowed alias in .env.
+  const xaiPrimary = (optional.XAI_API_KEY || '').trim();
+  const xaiGrok = (optional.GROK_API_KEY || '').trim();
+  config.XAI_API_KEY = xaiPrimary || xaiGrok || '';
 
   const orchestrationMaxPublishRaw = process.env.ORCHESTRATION_MAX_PUBLISH ?? '2';
   const orchestrationMaxPublish = Number.parseInt(orchestrationMaxPublishRaw, 10);
@@ -166,6 +181,17 @@ export function validateEnv() {
   config.ORCHESTRATION_MAX_SOCIAL = Number.isNaN(orchestrationMaxSocial)
     ? 3
     : Math.max(1, orchestrationMaxSocial);
+
+  const dailyMinRaw = (optional.DAILY_PUBLISH_MIN_RELEVANCE ?? '7').trim() || '7';
+  const dailyMin = Number.parseFloat(dailyMinRaw);
+  config.DAILY_PUBLISH_MIN_RELEVANCE = Number.isNaN(dailyMin) ? 7.0 : dailyMin;
+
+  config.PRODUCTION_TRIGGER_SECRET = (optional.PRODUCTION_TRIGGER_SECRET ?? '').trim();
+  const enableXPostingRaw = optional.ENABLE_X_POSTING;
+  config.ENABLE_X_POSTING =
+    enableXPostingRaw === ''
+      ? false
+      : ['1', 'true', 'yes', 'y'].includes(String(enableXPostingRaw).toLowerCase());
 
   success('validateEnv', { port, nodeEnv });
   return config;

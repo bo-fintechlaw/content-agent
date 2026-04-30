@@ -83,7 +83,12 @@ export async function createAndPublishBlogFromDraft({
   }
 
   let imageReady = false;
-  if (generateImage && draft.image_prompt && config.XAI_API_KEY) {
+  if (generateImage && draft.image_prompt && !config.XAI_API_KEY) {
+    start('createAndPublishBlogFromDraft:skipImage', {
+      reason:
+        'XAI_API_KEY or GROK_API_KEY not set (api.x.ai) — not the same as Twitter X_API_KEY',
+    });
+  } else if (generateImage && draft.image_prompt && config.XAI_API_KEY) {
     try {
       const slugPart = (draft.blog_slug || 'blog').slice(0, 40);
       const assetRef = await generateAndUploadImage({
@@ -125,5 +130,74 @@ export async function createAndPublishBlogFromDraft({
     published: publishAfterCreate,
   });
   return { docId: publishedId, imageReady, published: publishAfterCreate };
+}
+
+/**
+ * Rebuilds `mainContent` from a draft’s `blog_body` and patches an **already published** blog document.
+ * Use after improving markdown in the draft (e.g. headings and lists) so the site picks up new Portable Text.
+ * @param {import('@sanity/client').SanityClient} client
+ * @param {string} publishedId  Sanity _id of the published document (not `drafts.…`)
+ * @param {any[]} blogBody  Same shape as `content_drafts.blog_body`
+ */
+export async function patchPublishedBlogMainContent(client, publishedId, blogBody) {
+  start('patchPublishedBlogMainContent', { publishedId, sections: blogBody?.length });
+  const mainContent = blogSectionsToMainContent(blogBody);
+  const res = await breaker.execute(() =>
+    client.patch(publishedId).set({ mainContent }).commit()
+  );
+  if (res?.error) {
+    const err = new Error(String(res.error));
+    fail('patchPublishedBlogMainContent', err, { publishedId });
+    throw err;
+  }
+  success('patchPublishedBlogMainContent', { publishedId });
+  return { publishedId };
+}
+
+/**
+ * Generate a featured image with Grok Imagine and set `shareImage` on a **published** blog document.
+ * Use for backfill when the initial publish had no `XAI_API_KEY` or generation failed.
+ * @param {import('@sanity/client').SanityClient} client
+ * @param {Record<string, any>} config  Must include `XAI_API_KEY`
+ * @param {{ publishedId: string, imagePrompt: string, blogSlug?: string }} params
+ */
+export async function patchPublishedShareImage(client, config, params) {
+  const { publishedId, imagePrompt, blogSlug = 'blog' } = params;
+  start('patchPublishedShareImage', { publishedId });
+  if (!config.XAI_API_KEY?.trim()) {
+    const err = new Error('XAI_API_KEY or GROK_API_KEY is not set (xAI, not X/Twitter keys)');
+    fail('patchPublishedShareImage', err);
+    throw err;
+  }
+  if (!String(imagePrompt ?? '').trim()) {
+    const err = new Error('image_prompt is empty');
+    fail('patchPublishedShareImage', err);
+    throw err;
+  }
+  const slugPart = String(blogSlug).slice(0, 40);
+  const assetRef = await generateAndUploadImage({
+    prompt: imagePrompt,
+    sanityClient: client,
+    xaiApiKey: config.XAI_API_KEY,
+    filename: `${slugPart}.png`,
+  });
+  if (!assetRef) {
+    const err = new Error('Grok image generation did not return an asset');
+    fail('patchPublishedShareImage', err);
+    throw err;
+  }
+  const res = await breaker.execute(() =>
+    client
+      .patch(publishedId)
+      .set({ shareImage: { _type: 'image', asset: assetRef } })
+      .commit()
+  );
+  if (res?.error) {
+    const err = new Error(String(res.error));
+    fail('patchPublishedShareImage:commit', err, { publishedId });
+    throw err;
+  }
+  success('patchPublishedShareImage', { publishedId });
+  return { publishedId, assetRef };
 }
 

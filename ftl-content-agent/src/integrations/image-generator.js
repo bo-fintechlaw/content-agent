@@ -19,12 +19,16 @@ export async function generateAndUploadImage({ prompt, sanityClient, xaiApiKey, 
   start('generateAndUploadImage');
 
   if (!xaiApiKey) {
-    fail('generateAndUploadImage', new Error('XAI_API_KEY not set'));
+    fail(
+      'generateAndUploadImage',
+      new Error('Set XAI_API_KEY (or GROK_API_KEY) for api.x.ai — not Twitter X_API_KEY')
+    );
     return null;
   }
 
   try {
     // Generate image with Grok Imagine
+    // xAI Grok Imagine: use `aspect_ratio` + `resolution` (not OpenAI’s `size` — wrong param caused failed generations).
     const imageResult = await breaker.execute(
       async () => {
         const resp = await axios.post(
@@ -33,7 +37,8 @@ export async function generateAndUploadImage({ prompt, sanityClient, xaiApiKey, 
             model: 'grok-imagine-image',
             prompt: `Professional editorial illustration for a legal/fintech blog post. ${prompt}. Style: clean, modern, minimal. No text or words in the image.`,
             n: 1,
-            size: '16:9',
+            aspect_ratio: '16:9',
+            resolution: '2k',
             response_format: 'url',
           },
           {
@@ -47,6 +52,12 @@ export async function generateAndUploadImage({ prompt, sanityClient, xaiApiKey, 
       },
       null
     );
+
+    if (!imageResult || imageResult.error) {
+      const msg = imageResult?.error || 'xAI image request failed (no response body)';
+      fail('generateAndUploadImage', new Error(String(msg)));
+      return null;
+    }
 
     const imageUrl = imageResult?.data?.[0]?.url;
     if (!imageUrl) {

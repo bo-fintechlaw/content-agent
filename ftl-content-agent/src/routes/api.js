@@ -1,12 +1,14 @@
 import express from 'express';
 import { runDrafting } from '../pipeline/drafter.js';
 import { runJudging } from '../pipeline/judge.js';
+import { runDraftAndJudge } from '../pipeline/production.js';
 import { runTopicRanking } from '../pipeline/ranker.js';
 import { runSourceScan } from '../pipeline/scanner.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { runSocialPosting } from '../pipeline/social-poster.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { runOrchestration } from '../pipeline/orchestrator.js';
+import { runWeeklyReport } from '../pipeline/weekly-report.js';
 import { createSlackClient, sendSocialReviewMessage } from '../integrations/slack.js';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
@@ -144,14 +146,50 @@ export function createApiRouter(supabaseClient, config) {
     }
   });
 
-  router.get('/judge-now', async (_req, res) => {
+  router.get('/judge-now', async (req, res) => {
     start('GET /api/judge-now');
     try {
-      const result = await runJudging(supabaseClient, config);
+      const draftId = String(req.query.draftId ?? '').trim();
+      const result = await runJudging(
+        supabaseClient,
+        config,
+        draftId ? { draftId } : undefined
+      );
       success('GET /api/judge-now', result);
       res.json({ ok: true, ...result });
     } catch (error) {
       fail('GET /api/judge-now', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  /** On-demand: draft a specific topic, then judge → Slack (no publish). Ignores the daily min score. */
+  router.get('/start-production', async (req, res) => {
+    start('GET /api/start-production');
+    try {
+      const secret = config.PRODUCTION_TRIGGER_SECRET;
+      if (secret) {
+        const token = String(
+          req.query.token ?? req.headers['x-content-agent-token'] ?? ''
+        ).trim();
+        if (token !== secret) {
+          res.status(401).json({ ok: false, error: 'Unauthorized' });
+          return;
+        }
+      }
+      const topicId = String(req.query.topicId ?? '').trim();
+      if (!topicId) {
+        res.status(400).json({ ok: false, error: 'Missing query param: topicId' });
+        return;
+      }
+      const result = await runDraftAndJudge(supabaseClient, config, {
+        topicId,
+        runKind: 'on_demand',
+      });
+      success('GET /api/start-production', { topicId });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      fail('GET /api/start-production', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });
@@ -240,6 +278,18 @@ export function createApiRouter(supabaseClient, config) {
     }
   });
 
+  router.get('/weekly-report', async (_req, res) => {
+    start('GET /api/weekly-report');
+    try {
+      const result = await runWeeklyReport(supabaseClient, config);
+      success('GET /api/weekly-report', result);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      fail('GET /api/weekly-report', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   router.get('/drafts', async (req, res) => {
     start('GET /api/drafts');
     try {
@@ -260,6 +310,97 @@ export function createApiRouter(supabaseClient, config) {
     } catch (error) {
       fail('GET /api/drafts', error);
       res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  router.get('/drafts/:id', async (req, res) => {
+    start('GET /api/drafts/:id');
+    try {
+      const draftId = String(req.params.id ?? '').trim();
+      if (!draftId) {
+        return res.status(400).json({ ok: false, error: 'Missing draft id' });
+      }
+
+      const { data, error } = await supabaseClient
+        .from('content_drafts')
+        .select(
+          'id, topic_id, blog_title, blog_slug, blog_body, blog_seo_title, blog_seo_description, blog_seo_keywords, blog_category, blog_tags, linkedin_post, x_post, x_thread, judge_pass, judge_scores, judge_flags, revision_count, sanity_document_id, linkedin_post_id, x_post_id, published_at, created_at'
+        )
+        .eq('id', draftId)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) return res.status(404).json({ ok: false, error: 'Draft not found' });
+
+      success('GET /api/drafts/:id', { draftId });
+      return res.json({ ok: true, draft: data });
+    } catch (error) {
+      fail('GET /api/drafts/:id', error);
+      return res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  router.get('/drafts/:id/preview', async (req, res) => {
+    start('GET /api/drafts/:id/preview');
+    try {
+      const draftId = String(req.params.id ?? '').trim();
+      if (!draftId) {
+        return res.status(400).send('Missing draft id');
+      }
+
+      const { data, error } = await supabaseClient
+        .from('content_drafts')
+        .select('id, blog_title, blog_body, created_at')
+        .eq('id', draftId)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) return res.status(404).send('Draft not found');
+
+      const sections = Array.isArray(data.blog_body) ? data.blog_body : [];
+      const esc = (value) =>
+        String(value ?? '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+
+      const renderedSections = sections
+        .map((section) => {
+          const title = esc(section?.title ?? '');
+          const body = esc(section?.body ?? '').replaceAll('\n', '<br />');
+          return `<section><h2>${title}</h2><p>${body}</p></section>`;
+        })
+        .join('');
+
+      const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${esc(data.blog_title || 'Draft preview')}</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem auto; max-width: 860px; line-height: 1.6; padding: 0 1rem; color: #111; }
+      h1 { margin-bottom: 0.5rem; }
+      .meta { color: #555; margin-bottom: 2rem; font-size: 0.95rem; }
+      section { margin-bottom: 1.5rem; }
+      h2 { margin-bottom: 0.4rem; }
+      p { margin-top: 0; white-space: normal; }
+    </style>
+  </head>
+  <body>
+    <h1>${esc(data.blog_title || 'Untitled draft')}</h1>
+    <div class="meta">Draft ID: ${esc(data.id)}${data.created_at ? ` | Created: ${esc(data.created_at)}` : ''}</div>
+    ${renderedSections || '<p><em>No blog sections found.</em></p>'}
+  </body>
+</html>`;
+
+      success('GET /api/drafts/:id/preview', { draftId });
+      return res.status(200).type('html').send(html);
+    } catch (error) {
+      fail('GET /api/drafts/:id/preview', error);
+      return res.status(500).send(`Preview unavailable: ${error.message}`);
     }
   });
 

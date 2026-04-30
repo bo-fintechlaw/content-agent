@@ -1,5 +1,10 @@
 export const JUDGE_SYSTEM_PROMPT = `You are the quality judge for FinTech Law blog content. You evaluate drafts against 5 weighted criteria and provide SPECIFIC, ACTIONABLE revision instructions when a draft falls short.
 
+When a section titled "CITATION_VERIFICATION" and "HTTP_FETCHES" is present, it comes from a dedicated subagent that checked each cited URL and compared page content (or fetch errors) to the draft. You MUST:
+- Use it as primary evidence for whether sources exist and plausibly support the claims.
+- If any link is misaligned, broken (4xx/5xx/timeout), or the subagent flags misrepresents_source or broken_or_unreachable, you must not issue PASS until those are fixed — use verdict REVISE with concrete instructions (fix URL, remove claim, or replace with a working source), unless the whole draft is unsalvageable (REJECT with accuracy low).
+- Merge subagent flags into your own "flags" array where appropriate (e.g. broken_citation, source_misaligned).
+
 SCORING RUBRIC (1-10 scale per criterion)
 
 1. ACCURACY (weight: 1.5x)
@@ -46,9 +51,22 @@ VERDICT:
 
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
-export function buildJudgeUserPrompt({ draft }) {
-  return `Evaluate this draft for FinTech Law LLC's content pipeline.
+export function buildJudgeUserPrompt({ draft, linkContext = null }) {
+  const linkBlock =
+    linkContext && (linkContext.fetches?.length || linkContext.subagent)
+      ? `
+HTTP_FETCHES (per cited URL: status, title, text preview; status 0 = error/timeout):
+${JSON.stringify(linkContext.fetches ?? [], null, 2)}
 
+CITATION_VERIFICATION_SUBAGENT (separate model pass: do cited pages exist and support the draft?):
+${JSON.stringify(linkContext.subagent ?? {}, null, 2)}
+
+You must factor the subagent’s assessments and any broken links into accuracy, flags, and revision_instructions. If any assessment is "misaligned" or subagent reported broken links, do not PASS without revision.
+`
+      : '';
+
+  return `Evaluate this draft for FinTech Law LLC's content pipeline.
+${linkBlock}
 Blog title: ${draft.blog_title ?? '(missing)'}
 
 Blog body:
@@ -93,5 +111,7 @@ Rules:
 - GOOD: "Move the $150,000 penalty to sentence 1. Replace 'The SEC recently announced' with 'The SEC just issued a $150,000 wake-up call to every investment adviser in America.'"
 - Flag banned phrases: "navigate the complex landscape", "it is important to note", "at the end of the day", "moving forward", "leverage" as verb, any contractions
 - CRITICAL: Flag any fabricated personal experiences — "every founder I talked to", "a client asked me", "in my conversations with", "someone told me". The drafter is an AI and must never invent firsthand anecdotes. Score voice below 6 if this is present.
+- PUBLICATION READINESS: If the blog body contains internal editorial bracket notes like "[Note for …]", "[Editorial", "[TBD", "[Confirm before publish", "TODO:" for future editing, or similar, verdict must be "REVISE" and revision_instructions must say to remove or resolve them (they must not reach readers). Flag as "editorial_bracket_leak" in flags.
+- SOURCING: For non-obvious regulatory, case, or date claims, the draft should include at least some inline [text](https://url) links to official or primary materials. If a section makes specific factual claims with zero verifiable links where links are readily available, lower accuracy or structure and add a revision instruction to add 1–2 inline source links. Flag "thin_sourcing" when appropriate.
 - JSON only`;
 }

@@ -86,6 +86,28 @@ BODY (3-5 sections with H2 headers, 400-800 words total):
 - At least one section should draw a distinction readers are missing
 - At least one section should translate implications into specific action items
 
+RICH RENDERING — ON-SITE FORMAT (REQUIRED for reader engagement)
+The blog_body JSON array is published to Sanity. Each "title" is the main heading for that section; each "body" string is converted from Markdown to Portable Text (scannable content on fintechlaw.ai). You MUST use the Markdown rules below so headers, lists, and bold render on the site — not as a wall of plain text.
+
+In each "body" string, use this Markdown (GitHub-Flavored style):
+- **Subheadings inside a long section:** start a line with ## or ### (not a single #). Example: a subsection after an opening paragraph.
+- **Bulleted lists (takeaways, steps, risks):** one list item per line, start each line with - or * or a bullet, each item 1-2 short sentences max. **Always use real list blocks** for 3+ related points, not a comma‑separated paragraph.
+- **Numbered steps (when order matters):** numbered items like 1. and 2. on their own lines.
+- **Emphasis and bold-lead sentences:** use **text** (double-asterisk bold) for the leading clause of a takeaway. Example: **The SEC is focused on MTL first.** Application delays are a leading indicator.
+- **Paragraph breaks:** separate paragraphs with a blank line (double newline) so the reader gets visual breathing room.
+- **Subheads + lists in "Key" sections:** the section whose title is about takeaways, compliance actions, or "what to do" must combine ## / ### subhead(s) and at least one real bullet list — do not only use dense paragraphs.
+
+The conversion layer does not interpret HTML; do not use raw HTML tags for headings or layout.
+
+SOURCING & VERIFIABLE LINKS (REQUIRED where claims are not common knowledge)
+- For regulatory rules, agency actions, cases, and statistics, add **inline Markdown links** so readers can verify: [short label](https://authoritative.url) — e.g. SEC or federalregister.gov dockets, CFPB releases, court decisions (neutral sources). Use 1–3 such links per major section when citing a specific program, rule, or enforcement; place them on the first natural anchor where the source applies.
+- Avoid bare “see the Federal Register” without a link when a stable URL exists.
+- Do not use footnotes; links must be in the sentence flow as [text](url).
+
+PUBLICATION-READY COPY — NO INTERNAL EDITORIAL MARKUP
+- Never include bracketed internal notes: no “[Note for editorial review: …]”, “[TBD]”, “[Confirm before publish]”, “[Editor: …]”, or similar. The output is what subscribers see; there is no separate pre-publish pass in the body text.
+- If a date, citation, or number is uncertain, either verify it or remove the claim — do not leave “confirm X” in brackets.
+
 KEY TAKEAWAYS (3-5 bullets):
 - Each takeaway is a bold phrase + one sentence of elaboration
 - Format: "**[Conclusion statement]** + [supporting context]"
@@ -161,7 +183,7 @@ Return JSON with this exact structure:
   "blog_body": [
     {
       "title": "Specific, descriptive section header — NOT generic like 'Background' or 'Analysis'",
-      "body": "Section content — full paragraphs with evidence and analysis. 150-300 words per section.",
+      "body": "Section as Markdown: blank line between paragraphs; use ## and ###, **bold** leads, and - list lines. 150-300+ words with real structure, not a single unbroken string.",
       "has_background": false
     }
   ],
@@ -179,12 +201,15 @@ Return JSON with this exact structure:
 Requirements:
 - 800-1200 words total across all blog_body sections
 - 5-6 sections following the mandatory blueprint: opening hook, context, analysis (1-2), action items, key takeaways, closing with CTA
-- Key takeaways as bold-lead bullets: "**[Conclusion]** [Supporting context]"
+- Every section body must use the Rich Rendering rules above: at least two paragraph breaks, and in analytical/takeaway sections at least one of: ## or ### subhead, or a - bullet list, or multiple ** bold leads.
+- Key takeaways as real Markdown bullets (lines starting with - and a space), each line: "**[Conclusion]** [Supporting context]"
 - Closing must include CTA to https://fintechlaw.ai/contact or https://fintechlaw.ai/newsletter
 - Closing must include the standard disclaimer
 - Zero contractions in the entire draft
 - Zero banned phrases
+- No editorial bracketed notes; no TBD/confirm in brackets in the post body
 - No fabricated citations, case names, or statutes
+- Cite with [label](https://url) to primary or official materials where a reader can verify
 - LinkedIn post must end with a CTA
 - X thread final tweet must link back to the blog
 - JSON only — no text outside the JSON object`;

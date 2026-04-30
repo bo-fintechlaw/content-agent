@@ -54,6 +54,16 @@ export async function sendReviewMessage(client, channel, payload) {
     },
   ];
 
+  if (payload.reviewUrl) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Full draft:* <${payload.reviewUrl}|Open full post for review>`,
+      },
+    });
+  }
+
   // Judge notes for drafts that did not fully pass
   if (payload.revisionNotes && Array.isArray(payload.revisionNotes) && payload.revisionNotes.length) {
     blocks.push({
@@ -119,6 +129,134 @@ export async function sendReviewMessage(client, channel, payload) {
     fail('sendReviewMessage', err, { channel, channelId });
   } else {
     success('sendReviewMessage', { ts: result.ts });
+  }
+  return result;
+}
+
+/**
+ * Monday 6 AM job: RSS insert counts + ranker stats (scores, above-min counts).
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {string} channel
+ * @param {{
+ *   scan: { inserted: number, skipped: number, feedsProcessed: number, errors: unknown[] },
+ *   rank: { processed: number, ranked: number, archived: number, bypassedManual: number, failedTopics: number, report: object }
+ * }} payload
+ */
+export async function sendMondaySearchAndRankReport(client, channel, payload) {
+  start('sendMondaySearchAndRankReport');
+  const channelId = normalizeChannelId(channel);
+  const { scan, rank } = payload;
+  const errCount = Array.isArray(scan?.errors) ? scan.errors.length : 0;
+  const rep = rank?.report;
+  const minRel = rep?.minRelevance ?? 7;
+  const cutoff = rep?.rankerTop3Cutoff ?? 7.0;
+  const auto = Array.isArray(rep?.auto) ? rep.auto : [];
+  const manual = Array.isArray(rep?.manual) ? rep.manual : [];
+  const aboveMinAuto = rep?.countAutoScoredAtOrAboveMin ?? 0;
+  const aboveMinAll = rep?.countAllScoredAtOrAboveMin ?? 0;
+
+  const autoLines =
+    auto.length === 0
+      ? ['_No auto-scored topics in this batch (or none pending)._']
+      : auto
+          .slice(0, 20)
+          .map(
+            (a) =>
+              `• *${a.score}* — ${String(a.title ?? '').slice(0, 80)} _(${a.outcome})_`
+          );
+  if (auto.length > 20) {
+    autoLines.push(`_…and ${auto.length - 20} more auto-scored topic(s)_`);
+  }
+
+  const manualLines = manual.length
+    ? manual.map(
+        (m) =>
+          `• *${m.score}* — ${String(m.title ?? '').slice(0, 80)} _(manual, ranked)_`
+      )
+    : ['_No manual topic suggestions in this batch._'];
+
+  const lines = [
+    `*Scan (RSS)*: ${scan.inserted ?? 0} new, ${scan.skipped ?? 0} skipped (duplicates), ${scan.feedsProcessed ?? 0} feed(s) processed, ${errCount} error(s)`,
+    `*Ranker*: ${rank.processed ?? 0} pending row(s) processed → ${rank.ranked ?? 0} \`ranked\`, ${rank.archived ?? 0} \`archived\`, ${rank.bypassedManual ?? 0} manual bypass, ${rank.failedTopics ?? 0} failed to score`,
+    `*At or above daily publish min (${minRel})*: ${aboveMinAll} total (${aboveMinAuto} auto, ${manual.length} manual)`,
+    `_Ranker keeps the top 3 non-manual scorers with score ≥ ${cutoff} as \`ranked\`; the rest of auto topics are \`archived\`._`,
+    `*Auto scores (all):*`,
+    ...autoLines,
+    `*Manual:*`,
+    ...manualLines,
+  ];
+
+  const result = await breaker.execute(
+    () =>
+      client.chat.postMessage({
+        channel: channelId,
+        text: 'Monday: scan & rank report',
+        blocks: [
+          {
+            type: 'header',
+            text: { type: 'plain_text', text: 'Monday: RSS search & topic ranking', emoji: true },
+          },
+          { type: 'divider' },
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: lines.join('\n') },
+          },
+        ],
+      }),
+    { ok: false, error: 'slack_unavailable' }
+  );
+  if (!result.ok) {
+    const err = new Error(String(result.error ?? 'slack_post_failed'));
+    fail('sendMondaySearchAndRankReport', err, { channelId });
+  } else {
+    success('sendMondaySearchAndRankReport', { ts: result.ts });
+  }
+  return result;
+}
+
+/**
+ * 7 AM daily run produced no new draft (queue empty, below min, or similar).
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {string} channel
+ * @param {{ reason: string, [k: string]: unknown }} details
+ */
+export async function sendDailyNoDraftNotification(client, channel, details) {
+  start('sendDailyNoDraftNotification');
+  const channelId = normalizeChannelId(channel);
+  const reason = String(details.reason ?? 'unknown');
+  const extra = Object.keys(details)
+    .filter((k) => k !== 'reason' && k !== 'drafted')
+    .map((k) => `${k}: ${JSON.stringify(details[k])}`)
+    .slice(0, 5)
+    .join('\n');
+
+  const result = await breaker.execute(
+    () =>
+      client.chat.postMessage({
+        channel: channelId,
+        text: 'Daily content: no draft started',
+        blocks: [
+          {
+            type: 'header',
+            text: { type: 'plain_text', text: 'Daily run: no topic drafted', emoji: true },
+          },
+          { type: 'divider' },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `The scheduled 7 AM draft run did *not* create a draft.\n*Reason:* \`${reason}\`${extra ? `\n${extra}` : ''}\n\n_Use \`GET /api/start-production?topicId=…\` to start one manually._`,
+            },
+          },
+        ],
+      }),
+    { ok: false, error: 'slack_unavailable' }
+  );
+  if (!result.ok) {
+    const err = new Error(String(result.error ?? 'slack_post_failed'));
+    fail('sendDailyNoDraftNotification', err, { channelId });
+  } else {
+    success('sendDailyNoDraftNotification', { ts: result.ts });
   }
   return result;
 }

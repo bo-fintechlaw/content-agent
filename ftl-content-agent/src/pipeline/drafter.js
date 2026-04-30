@@ -3,30 +3,91 @@ import { DEFAULT_SEO_KEYWORDS } from '../config/seo-keywords.js';
 import { DRAFTER_SYSTEM_PROMPT, buildDrafterUserPrompt } from '../prompts/drafter-system.js';
 import { fail, start, success } from '../utils/logger.js';
 
-export async function runDrafting(supabase, config) {
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Record<string, any>} config
+ * @param {{
+ *   topicId?: string,
+ *   minRelevanceScore?: number
+ * } | undefined} [options]
+ * @description When `options.topicId` is set, drafts that topic if status is `ranked` or `revision`.
+ * Otherwise uses the default queue: revision first, then highest `relevance_score` among `ranked`.
+ * `minRelevanceScore` (scheduled runs only, no `topicId`): if the chosen row is `ranked` and its
+ * score is below this, drafting is skipped.
+ */
+export async function runDrafting(supabase, config, options = {}) {
   start('runDrafting');
   try {
-    // Check for topics needing revision first (human feedback), then new ranked topics
-    const { data: revisionTopic, error: revErr } = await supabase
-      .from('content_topics')
-      .select('id,title,summary,category,relevance_score,status')
-      .eq('status', 'revision')
-      .order('updated_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (revErr) throw new Error(revErr.message);
+    const forceTopicId = String(options.topicId ?? '').trim();
 
-    const { data: rankedTopic, error: rankErr } = await supabase
-      .from('content_topics')
-      .select('id,title,summary,category,relevance_score,status')
-      .eq('status', 'ranked')
-      .order('relevance_score', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (rankErr) throw new Error(rankErr.message);
+    let topic;
 
-    const topic = revisionTopic || rankedTopic;
+    if (forceTopicId) {
+      const { data: forced, error: forcedErr } = await supabase
+        .from('content_topics')
+        .select('id,title,summary,category,relevance_score,status')
+        .eq('id', forceTopicId)
+        .maybeSingle();
+      if (forcedErr) throw new Error(forcedErr.message);
+      if (!forced) return { drafted: false, reason: 'topic_not_found' };
+      if (forced.status !== 'ranked' && forced.status !== 'revision') {
+        return { drafted: false, reason: 'topic_not_draftable', status: forced.status };
+      }
+      const { data: undecided, error: undErr } = await supabase
+        .from('content_drafts')
+        .select('id')
+        .eq('topic_id', forceTopicId)
+        .is('judge_pass', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (undErr) throw new Error(undErr.message);
+      if (undecided) {
+        return { drafted: false, reason: 'unjudged_draft_exists', draftId: undecided.id };
+      }
+      topic = forced;
+    } else {
+      // Check for topics needing revision first (human feedback), then new ranked topics
+      const { data: revisionTopic, error: revErr } = await supabase
+        .from('content_topics')
+        .select('id,title,summary,category,relevance_score,status')
+        .eq('status', 'revision')
+        .order('updated_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (revErr) throw new Error(revErr.message);
+
+      const { data: rankedTopic, error: rankErr } = await supabase
+        .from('content_topics')
+        .select('id,title,summary,category,relevance_score,status')
+        .eq('status', 'ranked')
+        .order('relevance_score', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (rankErr) throw new Error(rankErr.message);
+
+      topic = revisionTopic || rankedTopic;
+    }
+
     if (!topic) return { drafted: false, reason: 'no_topics_to_draft' };
+
+    const minRel = options.minRelevanceScore;
+    if (
+      minRel != null &&
+      Number.isFinite(minRel) &&
+      !forceTopicId &&
+      topic.status === 'ranked'
+    ) {
+      const score = Number(topic.relevance_score);
+      if (!Number.isFinite(score) || score < minRel) {
+        return {
+          drafted: false,
+          reason: 'below_minimum_relevance_score',
+          relevance_score: topic.relevance_score,
+          minRelevanceScore: minRel,
+        };
+      }
+    }
 
     // If revising, fetch previous draft's feedback to pass as revision instructions
     let revisionInstructions = [];

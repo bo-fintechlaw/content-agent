@@ -54,7 +54,7 @@ export async function runSocialPosting(supabase, config, options = {}) {
     const xThread = Array.isArray(draft.x_thread) ? draft.x_thread : [];
 
     const hasLinkedIn = !!linkedinText && !draft.linkedin_post_id;
-    const hasX = !!xText && !draft.x_post_id;
+    const hasX = !!config.ENABLE_X_POSTING && !!xText && !draft.x_post_id;
 
     if (!hasLinkedIn && !hasX) {
       skipped++;
@@ -130,23 +130,31 @@ export async function runSocialPosting(supabase, config, options = {}) {
       // Analytics (best-effort): store raw ids from this run.
       if (!dryRun) {
         if (newLinkedInId) {
-          await supabase.from('content_analytics').insert({
-            draft_id: draft.id,
-            platform: 'linkedin',
-            impressions: 0,
-            engagements: 0,
-            raw_data: { linkedin_post_id: newLinkedInId },
-          }).catch(() => {});
+          try {
+            await supabase.from('content_analytics').insert({
+              draft_id: draft.id,
+              platform: 'linkedin',
+              impressions: 0,
+              engagements: 0,
+              raw_data: { linkedin_post_id: newLinkedInId },
+            });
+          } catch {
+            // Non-fatal analytics failure.
+          }
         }
 
         if (newXId) {
-          await supabase.from('content_analytics').insert({
-            draft_id: draft.id,
-            platform: 'x',
-            impressions: 0,
-            engagements: 0,
-            raw_data: { x_post_id: newXId },
-          }).catch(() => {});
+          try {
+            await supabase.from('content_analytics').insert({
+              draft_id: draft.id,
+              platform: 'x',
+              impressions: 0,
+              engagements: 0,
+              raw_data: { x_post_id: newXId },
+            });
+          } catch {
+            // Non-fatal analytics failure.
+          }
         }
       }
     } catch (error) {

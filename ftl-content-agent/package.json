@@ -12,7 +12,9 @@
     "dev": "nodemon src/index.js",
     "linkedin:exchange": "node scripts/exchange-linkedin-token.mjs",
     "notion:mcp:test": "node scripts/test-notion-mcp.mjs",
-    "sanity:mcp:test": "node scripts/test-sanity-mcp.mjs"
+    "sanity:mcp:test": "node scripts/test-sanity-mcp.mjs",
+    "slack:ping": "node scripts/slack-ping.mjs",
+    "blog:backfill-image": "node scripts/backfill-blog-share-image.mjs"
   },
   "engines": {
     "node": ">=20"

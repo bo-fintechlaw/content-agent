@@ -9,6 +9,25 @@ import { fail, start, success } from '../utils/logger.js';
  * - manual suggestions bypass to ranked 10.0
  * - top 3 of auto-ranked topics stay ranked, others archived
  */
+const RANKER_TOP3_CUTOFF = 7.0; // auto: top 3 of pending with score >= this (see loop below)
+
+function minRelevanceFromConfig(config) {
+  const m = config?.DAILY_PUBLISH_MIN_RELEVANCE;
+  return m != null && Number.isFinite(m) ? m : 7.0;
+}
+
+function buildEmptyReport(config) {
+  const min = minRelevanceFromConfig(config);
+  return {
+    minRelevance: min,
+    rankerTop3Cutoff: RANKER_TOP3_CUTOFF,
+    auto: /** @type {Array<{ title: string, score: number, outcome: 'ranked' | 'archived' }> } */ ([]),
+    manual: /** @type {Array<{ title: string, score: number, outcome: 'ranked' }> } */ ([]),
+    countAutoScoredAtOrAboveMin: 0,
+    countAllScoredAtOrAboveMin: 0,
+  };
+}
+
 export async function runTopicRanking(supabase, config) {
   start('runTopicRanking');
   const stats = {
@@ -28,12 +47,16 @@ export async function runTopicRanking(supabase, config) {
       .limit(25);
     if (error) throw new Error(error.message);
     if (!topics?.length) {
+      const empty = buildEmptyReport(config);
       success('runTopicRanking', stats);
-      return stats;
+      return { ...stats, report: empty };
     }
 
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
+    const minRel = minRelevanceFromConfig(config);
     const autoScored = [];
+    /** @type {Array<{ title: string, score: number, outcome: 'ranked' }>} */
+    const manualRanked = [];
 
     for (const topic of topics) {
       stats.processed++;
@@ -45,6 +68,11 @@ export async function runTopicRanking(supabase, config) {
         if (upErr) throw new Error(upErr.message);
         stats.ranked++;
         stats.bypassedManual++;
+        manualRanked.push({
+          title: String(topic.title ?? 'Untitled').slice(0, 200),
+          score: 10.0,
+          outcome: 'ranked',
+        });
         continue;
       }
 
@@ -59,7 +87,11 @@ export async function runTopicRanking(supabase, config) {
 
         const weighted = Number(result.weighted_score ?? 0);
         if (!Number.isFinite(weighted)) throw new Error('weighted_score not numeric');
-        autoScored.push({ topicId: topic.id, score: Number(weighted.toFixed(1)) });
+        autoScored.push({
+          topicId: topic.id,
+          title: String(topic.title ?? 'Untitled').slice(0, 200),
+          score: Number(weighted.toFixed(1)),
+        });
       } catch (topicError) {
         stats.failedTopics++;
         fail('runTopicRanking:topic', topicError, { topicId: topic.id, title: topic.title });
@@ -67,7 +99,9 @@ export async function runTopicRanking(supabase, config) {
     }
 
     autoScored.sort((a, b) => b.score - a.score);
-    const topThree = new Set(autoScored.filter((t) => t.score >= 7.0).slice(0, 3).map((t) => t.topicId));
+    const topThree = new Set(
+      autoScored.filter((t) => t.score >= RANKER_TOP3_CUTOFF).slice(0, 3).map((t) => t.topicId)
+    );
 
     for (const row of autoScored) {
       const nextStatus = topThree.has(row.topicId) ? 'ranked' : 'archived';
@@ -84,8 +118,23 @@ export async function runTopicRanking(supabase, config) {
       else stats.archived++;
     }
 
+    const countAutoGteMin = autoScored.filter((r) => r.score >= minRel).length;
+    const countManualGteMin = manualRanked.filter((r) => r.score >= minRel).length;
+    const report = {
+      minRelevance: minRel,
+      rankerTop3Cutoff: RANKER_TOP3_CUTOFF,
+      auto: autoScored.map((row) => ({
+        title: row.title,
+        score: row.score,
+        outcome: topThree.has(row.topicId) ? 'ranked' : 'archived',
+      })),
+      manual: manualRanked,
+      countAutoScoredAtOrAboveMin: countAutoGteMin,
+      countAllScoredAtOrAboveMin: countAutoGteMin + countManualGteMin,
+    };
+
     success('runTopicRanking', stats);
-    return stats;
+    return { ...stats, report };
   } catch (error) {
     fail('runTopicRanking', error);
     throw error;
