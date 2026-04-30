@@ -35,16 +35,20 @@ export function createSanityClient(config) {
 
 export function buildBlogDocument(draft) {
   const mainContent = blogSectionsToMainContent(draft.blog_body);
+  const existingAssetRef = String(draft.image_asset_ref ?? '').trim();
+  const shareImage = existingAssetRef
+    ? { _type: 'image', asset: { _type: 'reference', _ref: existingAssetRef } }
+    : {
+        _type: 'image',
+        instruction: draft.image_prompt,
+      };
 
   return {
     _type: 'blog',
     title: draft.blog_title,
     slug: { _type: 'slug', current: draft.blog_slug },
     publishedAt: new Date().toISOString(),
-    shareImage: {
-      _type: 'image',
-      instruction: draft.image_prompt,
-    },
+    shareImage,
     blogImageAlt: draft.blog_title,
     seoTitle: draft.blog_seo_title,
     seoDescription: draft.blog_seo_description,

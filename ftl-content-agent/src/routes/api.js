@@ -348,31 +348,35 @@ export function createApiRouter(supabaseClient, config) {
         return res.status(400).send('Missing draft id');
       }
 
-      const { data, error } = await supabaseClient
+      let { data, error } = await supabaseClient
         .from('content_drafts')
-        .select('id, blog_title, blog_body, created_at')
+        .select('id, blog_title, blog_body, image_asset_ref, created_at')
         .eq('id', draftId)
         .maybeSingle();
+      if (error && String(error.message || '').includes('image_asset_ref')) {
+        ({ data, error } = await supabaseClient
+          .from('content_drafts')
+          .select('id, blog_title, blog_body, created_at')
+          .eq('id', draftId)
+          .maybeSingle());
+      }
 
       if (error) throw new Error(error.message);
       if (!data) return res.status(404).send('Draft not found');
 
       const sections = Array.isArray(data.blog_body) ? data.blog_body : [];
-      const esc = (value) =>
-        String(value ?? '')
-          .replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          .replaceAll('"', '&quot;')
-          .replaceAll("'", '&#39;');
-
       const renderedSections = sections
         .map((section) => {
-          const title = esc(section?.title ?? '');
-          const body = esc(section?.body ?? '').replaceAll('\n', '<br />');
-          return `<section><h2>${title}</h2><p>${body}</p></section>`;
+          const title = escHtml(section?.title ?? '');
+          const body = markdownToHtml(String(section?.body ?? ''));
+          return `<section><h2>${title}</h2>${body}</section>`;
         })
         .join('');
+      const imageUrl = sanityAssetRefToCdnUrl({
+        ref: data.image_asset_ref,
+        projectId: config.SANITY_PROJECT_ID,
+        dataset: config.SANITY_DATASET,
+      });
 
       const html = `<!doctype html>
 <html lang="en">
@@ -387,11 +391,16 @@ export function createApiRouter(supabaseClient, config) {
       section { margin-bottom: 1.5rem; }
       h2 { margin-bottom: 0.4rem; }
       p { margin-top: 0; white-space: normal; }
+      ul, ol { padding-left: 1.25rem; }
+      img { max-width: 100%; border-radius: 8px; margin: 1rem 0 1.5rem; }
+      a { color: #0a5bd8; text-decoration: none; }
+      a:hover { text-decoration: underline; }
     </style>
   </head>
   <body>
-    <h1>${esc(data.blog_title || 'Untitled draft')}</h1>
-    <div class="meta">Draft ID: ${esc(data.id)}${data.created_at ? ` | Created: ${esc(data.created_at)}` : ''}</div>
+    <h1>${escHtml(data.blog_title || 'Untitled draft')}</h1>
+    <div class="meta">Draft ID: ${escHtml(data.id)}${data.created_at ? ` | Created: ${escHtml(data.created_at)}` : ''}</div>
+    ${imageUrl ? `<img src="${escHtml(imageUrl)}" alt="Draft featured image" />` : ''}
     ${renderedSections || '<p><em>No blog sections found.</em></p>'}
   </body>
 </html>`;
@@ -405,4 +414,97 @@ export function createApiRouter(supabaseClient, config) {
   });
 
   return router;
+}
+
+function escHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function markdownToHtml(markdown) {
+  const lines = String(markdown ?? '').replaceAll('\r\n', '\n').split('\n');
+  const out = [];
+  let inUl = false;
+  let inOl = false;
+  let paragraph = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    out.push(`<p>${inlineMarkdown(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+  const closeLists = () => {
+    if (inUl) out.push('</ul>');
+    if (inOl) out.push('</ol>');
+    inUl = false;
+    inOl = false;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      closeLists();
+      continue;
+    }
+    if (line.startsWith('### ')) {
+      flushParagraph();
+      closeLists();
+      out.push(`<h4>${inlineMarkdown(line.slice(4))}</h4>`);
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      flushParagraph();
+      closeLists();
+      out.push(`<h3>${inlineMarkdown(line.slice(3))}</h3>`);
+      continue;
+    }
+    const ulMatch = line.match(/^[-*]\s+(.+)$/);
+    if (ulMatch) {
+      flushParagraph();
+      if (!inUl) {
+        closeLists();
+        inUl = true;
+        out.push('<ul>');
+      }
+      out.push(`<li>${inlineMarkdown(ulMatch[1])}</li>`);
+      continue;
+    }
+    const olMatch = line.match(/^\d+\.\s+(.+)$/);
+    if (olMatch) {
+      flushParagraph();
+      if (!inOl) {
+        closeLists();
+        inOl = true;
+        out.push('<ol>');
+      }
+      out.push(`<li>${inlineMarkdown(olMatch[1])}</li>`);
+      continue;
+    }
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  closeLists();
+  return out.join('\n');
+}
+
+function inlineMarkdown(text) {
+  let html = escHtml(text);
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return html;
+}
+
+function sanityAssetRefToCdnUrl({ ref, projectId, dataset }) {
+  const assetRef = String(ref ?? '').trim();
+  if (!assetRef || !projectId || !dataset) return '';
+  const match = assetRef.match(/^image-([a-f0-9]+)-(\d+x\d+)-([a-z0-9]+)$/i);
+  if (!match) return '';
+  const [, hash, dimensions, ext] = match;
+  return `https://cdn.sanity.io/images/${projectId}/${dataset}/${hash}-${dimensions}.${ext}`;
 }

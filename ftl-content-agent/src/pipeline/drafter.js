@@ -25,7 +25,7 @@ export async function runDrafting(supabase, config, options = {}) {
     if (forceTopicId) {
       const { data: forced, error: forcedErr } = await supabase
         .from('content_topics')
-        .select('id,title,summary,category,relevance_score,status')
+        .select('id,title,summary,source_url,category,relevance_score,status')
         .eq('id', forceTopicId)
         .maybeSingle();
       if (forcedErr) throw new Error(forcedErr.message);
@@ -50,7 +50,7 @@ export async function runDrafting(supabase, config, options = {}) {
       // Check for topics needing revision first (human feedback), then new ranked topics
       const { data: revisionTopic, error: revErr } = await supabase
         .from('content_topics')
-        .select('id,title,summary,category,relevance_score,status')
+        .select('id,title,summary,source_url,category,relevance_score,status')
         .eq('status', 'revision')
         .order('updated_at', { ascending: true })
         .limit(1)
@@ -59,7 +59,7 @@ export async function runDrafting(supabase, config, options = {}) {
 
       const { data: rankedTopic, error: rankErr } = await supabase
         .from('content_topics')
-        .select('id,title,summary,category,relevance_score,status')
+        .select('id,title,summary,source_url,category,relevance_score,status')
         .eq('status', 'ranked')
         .order('relevance_score', { ascending: false })
         .limit(1)

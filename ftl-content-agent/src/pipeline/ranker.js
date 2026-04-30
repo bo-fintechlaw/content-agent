@@ -1,6 +1,7 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
 import { DEFAULT_SEO_KEYWORDS } from '../config/seo-keywords.js';
 import { buildRankerUserPrompt, RANKER_SYSTEM_PROMPT } from '../prompts/ranker-system.js';
+import { computeRankerWeightedScore } from './verdict.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -85,12 +86,13 @@ export async function runTopicRanking(supabase, config) {
           temperature: 0.1,
         });
 
-        const weighted = Number(result.weighted_score ?? 0);
-        if (!Number.isFinite(weighted)) throw new Error('weighted_score not numeric');
+        // Composite is computed in code (single source of truth in verdict.js).
+        // Any weighted_score the LLM happens to return is ignored.
+        const weighted = computeRankerWeightedScore(result.scores);
         autoScored.push({
           topicId: topic.id,
           title: String(topic.title ?? 'Untitled').slice(0, 200),
-          score: Number(weighted.toFixed(1)),
+          score: weighted,
         });
       } catch (topicError) {
         stats.failedTopics++;

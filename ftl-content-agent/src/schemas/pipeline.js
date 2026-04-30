@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 // --- Ranker output schema ---
+// weighted_score is computed in code (src/pipeline/verdict.js); the schema accepts
+// it for backwards compatibility but does not require it from the LLM.
 export const RankerResponseSchema = z.object({
   scores: z.object({
     practice_relevance: z.number().min(0).max(10),
@@ -9,7 +11,7 @@ export const RankerResponseSchema = z.object({
     content_gap: z.number().min(0).max(10),
     engagement_potential: z.number().min(0).max(10),
   }),
-  weighted_score: z.number().min(0).max(10),
+  weighted_score: z.number().min(0).max(10).optional(),
   reasoning: z.string(),
 });
 
@@ -44,6 +46,8 @@ const ScoreDetailSchema = z.union([
   }),
 ]);
 
+// composite + verdict are computed in code (src/pipeline/verdict.js); the schema
+// accepts them for backwards compatibility but does not require them from the LLM.
 export const JudgeResponseSchema = z.object({
   scores: z.object({
     accuracy: ScoreDetailSchema,
@@ -53,8 +57,8 @@ export const JudgeResponseSchema = z.object({
     structure: ScoreDetailSchema,
     tone: ScoreDetailSchema.optional(), // backwards compat alias for voice
   }),
-  composite: z.number().min(0).max(10),
-  verdict: z.enum(['PASS', 'REVISE', 'REJECT']),
+  composite: z.number().min(0).max(10).optional(),
+  verdict: z.enum(['PASS', 'REVISE', 'REJECT']).optional(),
   revision_instructions: z.array(z.string()).optional().default([]),
   strengths: z.array(z.string()).optional().default([]),
   flags: z.array(z.string()).optional().default([]),

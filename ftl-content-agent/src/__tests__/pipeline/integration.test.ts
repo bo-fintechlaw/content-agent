@@ -198,6 +198,37 @@ jest.unstable_mockModule('axios', () => ({
   default: { post: jest.fn<any>(() => Promise.resolve({ status: 200 })) },
 }));
 
+// Citation subagent + URL harvester are mocked so the integration test does not
+// rely on network access (fetchOneCitationUrl uses native fetch) and does not
+// consume promptJson mocks for citation verification — those mocks are reserved
+// for the ranker / drafter / judge calls under test.
+jest.unstable_mockModule('../../pipeline/citation-harvest.js', () => ({
+  extractHttpUrlsFromDraft: jest.fn<any>(() => []),
+  fetchAllCitationPreviews: jest.fn<any>(() => Promise.resolve([])),
+  fetchOneCitationUrl: jest.fn<any>(() =>
+    Promise.resolve({
+      url: '',
+      finalUrl: '',
+      ok: false,
+      status: 0,
+      contentType: '',
+      title: null,
+      textPreview: '',
+      error: 'mocked',
+    })
+  ),
+}));
+
+jest.unstable_mockModule('../../pipeline/citation-subagent.js', () => ({
+  runCitationVerificationSubagent: jest.fn<any>(() =>
+    Promise.resolve({
+      assessments: [],
+      subagent_flags: [],
+      subagent_summary: 'mocked: no http(s) URLs in draft to verify.',
+    })
+  ),
+}));
+
 // ---------- import pipeline modules after mocks ----------
 const { runTopicRanking } = await import('../../pipeline/ranker.js');
 const { runDrafting } = await import('../../pipeline/drafter.js');
@@ -227,6 +258,7 @@ const config = {
   X_ACCESS_TOKEN: 'x-token',
   X_ACCESS_TOKEN_SECRET: 'x-token-secret',
   ENABLE_X_POSTING: true,
+  PREJUDGE_ENFORCE_VERIFIED_CITATIONS: false,
   NETLIFY_BUILD_HOOK: 'https://api.netlify.com/build_hooks/test',
   ORCHESTRATION_MAX_SOCIAL: 3,
 };
@@ -266,10 +298,12 @@ describe('Pipeline Integration — Happy Path', () => {
     expect(rankResult.processed).toBe(1);
     expect(rankResult.ranked).toBe(1);
 
-    // Verify topic was updated to ranked
+    // Verify topic was updated to ranked.
+    // relevance_score is now computed in code from per-criterion scores
+    // (verdict.js): 0.30*9 + 0.25*8 + 0.20*7 + 0.15*6 + 0.10*8 = 7.8
     const rankedTopic = dbTopics.find((t) => t.id === topicId);
     expect(rankedTopic?.status).toBe('ranked');
-    expect(rankedTopic?.relevance_score).toBe(8.0);
+    expect(rankedTopic?.relevance_score).toBe(7.8);
 
     // --- Stage 3: Drafting ---
     supabase = buildSupabaseMock();

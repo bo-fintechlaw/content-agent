@@ -117,7 +117,7 @@ KEY TAKEAWAYS (3-5 bullets):
 CLOSING (1 paragraph):
 - Reinforce the core insight (one sentence)
 - Non-salesy bridge to FTL: "If your firm is [relevant activity], we would welcome the conversation" or "FinTech Law helps [audience] with [specific service]. Contact us to schedule a consultation."
-- Include link to https://fintechlaw.ai/contact or https://fintechlaw.ai/newsletter
+- Include link to https://fintechlaw.ai/contact (do NOT link to fintechlaw.ai/newsletter — that path returns 404)
 
 DISCLAIMER (Standard — always include):
 "This blog post is for informational purposes only and does not constitute legal advice. No attorney-client relationship is formed by reading this content. If you need legal advice, please contact a qualified attorney."
@@ -171,6 +171,11 @@ export function buildDrafterUserPrompt({ topic, seoKeywords, revisionInstruction
   return `Draft content from this topic:
 ${JSON.stringify(topic, null, 2)}
 
+PRIMARY SOURCE REQUIREMENT:
+- The topic source URL is: ${String(topic?.source_url ?? '').trim() || '(missing)'}
+- You MUST include this source URL as an inline citation in the blog body with linked words, not pasted as a raw URL.
+- You MUST include at least one additional secondary source citation from a separate official/neutral source.
+
 Target SEO keywords (weave naturally into content, especially headers and first paragraphs):
 ${seoKeywords.join(', ')}
 
@@ -203,13 +208,18 @@ Requirements:
 - 5-6 sections following the mandatory blueprint: opening hook, context, analysis (1-2), action items, key takeaways, closing with CTA
 - Every section body must use the Rich Rendering rules above: at least two paragraph breaks, and in analytical/takeaway sections at least one of: ## or ### subhead, or a - bullet list, or multiple ** bold leads.
 - Key takeaways as real Markdown bullets (lines starting with - and a space), each line: "**[Conclusion]** [Supporting context]"
-- Closing must include CTA to https://fintechlaw.ai/contact or https://fintechlaw.ai/newsletter
+- Closing must include CTA to https://fintechlaw.ai/contact
+- Closing should include both links when natural: https://fintechlaw.ai and https://fintechlaw.ai/contact
+- Do NOT link to https://fintechlaw.ai/newsletter — that URL returns 404
 - Closing must include the standard disclaimer
 - Zero contractions in the entire draft
 - Zero banned phrases
 - No editorial bracketed notes; no TBD/confirm in brackets in the post body
 - No fabricated citations, case names, or statutes
 - Cite with [label](https://url) to primary or official materials where a reader can verify
+- Include at least two verifiable inline citations in the blog body:
+  1) One PRIMARY source tied to the topic's source_url
+  2) One SECONDARY source (e.g., regulator release, statute page, court filing, or major neutral reporting)
 - LinkedIn post must end with a CTA
 - X thread final tweet must link back to the blog
 - JSON only — no text outside the JSON object`;

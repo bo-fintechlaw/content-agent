@@ -3,6 +3,11 @@ import { createSlackClient, sendReviewMessage } from '../integrations/slack.js';
 import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from '../prompts/judge-system.js';
 import { extractHttpUrlsFromDraft, fetchAllCitationPreviews } from './citation-harvest.js';
 import { runCitationVerificationSubagent } from './citation-subagent.js';
+import {
+  computeJudgeComposite,
+  deriveJudgeVerdict,
+  normalizeJudgeScores,
+} from './verdict.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -71,28 +76,17 @@ export async function runJudging(supabase, config, options = {}) {
           voice: { score: 0, rationale: 'Anthropic unavailable' },
           structure: { score: 0, rationale: 'Anthropic unavailable' },
         },
-        composite: 0,
-        verdict: 'REVISE',
         revision_instructions: ['Anthropic was unavailable — re-judge when service is restored.'],
         strengths: [],
         flags: [fallbackFlag],
       };
     }
 
-    // Normalize scores — handle both old format (number) and new format ({ score, rationale })
-    const normalizedScores = {};
-    for (const key of ['accuracy', 'engagement', 'seo', 'voice', 'structure']) {
-      const raw = result.scores?.[key];
-      normalizedScores[key] = typeof raw === 'number' ? raw : (raw?.score ?? 0);
-    }
-
-    // Also support old "tone" key mapped to "voice" for backwards compat
-    if (result.scores?.tone !== undefined && result.scores?.voice === undefined) {
-      const raw = result.scores.tone;
-      normalizedScores.voice = typeof raw === 'number' ? raw : (raw?.score ?? 0);
-    }
-
-    const verdict = (result.verdict ?? '').toUpperCase();
+    // Composite + verdict are computed in code (single source of truth in verdict.js).
+    // Any composite/verdict the LLM happens to return is ignored.
+    const normalizedScores = normalizeJudgeScores(result.scores);
+    const composite = computeJudgeComposite(normalizedScores);
+    const verdict = deriveJudgeVerdict({ composite, scores: normalizedScores });
     const isPassing = verdict === 'PASS';
     const isRevise = verdict === 'REVISE';
 
@@ -116,8 +110,8 @@ export async function runJudging(supabase, config, options = {}) {
         .update({ status: 'revision', updated_at: new Date().toISOString() })
         .eq('id', draft.topic_id);
 
-      success('runJudging', { draftId: draft.id, verdict, composite: result.composite, revised: true });
-      return { judged: false, revised: true, draftId: draft.id, verdict, composite: result.composite };
+      success('runJudging', { draftId: draft.id, verdict, composite, revised: true });
+      return { judged: false, revised: true, draftId: draft.id, verdict, composite };
     }
 
     // PASS, or REVISE that already used its revision — send to Slack
@@ -149,7 +143,7 @@ export async function runJudging(supabase, config, options = {}) {
         draftId: draft.id,
         blog_title: draft.blog_title,
         scores: normalizedScores,
-        composite: result.composite,
+        composite,
         verdict,
         blogBody: draft.blog_body,
         linkedinPost: draft.linkedin_post,
@@ -160,8 +154,8 @@ export async function runJudging(supabase, config, options = {}) {
     }
 
     const isFallback = !!result?.flags?.includes('anthropic_unavailable_fallback');
-    success('runJudging', { draftId: draft.id, verdict, composite: result.composite, pass: judgePass, fallback: isFallback });
-    return { judged: true, draftId: draft.id, verdict, composite: result.composite, pass: judgePass, fallback: isFallback };
+    success('runJudging', { draftId: draft.id, verdict, composite, pass: judgePass, fallback: isFallback });
+    return { judged: true, draftId: draft.id, verdict, composite, pass: judgePass, fallback: isFallback };
   } catch (error) {
     fail('runJudging', error);
     throw error;

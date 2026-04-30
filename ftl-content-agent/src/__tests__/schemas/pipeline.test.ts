@@ -26,10 +26,10 @@ describe('RankerResponseSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects missing weighted_score', () => {
-    const { weighted_score, ...incomplete } = validRanker;
-    const result = RankerResponseSchema.safeParse(incomplete);
-    expect(result.success).toBe(false);
+  it('accepts missing weighted_score (computed in code per verdict.js)', () => {
+    const { weighted_score, ...withoutWeighted } = validRanker;
+    const result = RankerResponseSchema.safeParse(withoutWeighted);
+    expect(result.success).toBe(true);
   });
 
   it('rejects scores out of range (> 10)', () => {
@@ -182,6 +182,12 @@ describe('JudgeResponseSchema', () => {
     const bad = { ...validJudge, verdict: 'MAYBE' };
     const result = JudgeResponseSchema.safeParse(bad);
     expect(result.success).toBe(false);
+  });
+
+  it('accepts response without composite or verdict (computed in code per verdict.js)', () => {
+    const { composite, verdict, ...withoutComputed } = validJudge;
+    const result = JudgeResponseSchema.safeParse(withoutComputed);
+    expect(result.success).toBe(true);
   });
 
   it('rejects missing scores object', () => {

@@ -42,6 +42,7 @@ const OPTIONAL_STRING = [
   'GROK_API_KEY',
   'DAILY_PUBLISH_MIN_RELEVANCE',
   'PRODUCTION_TRIGGER_SECRET',
+  'PREJUDGE_ENFORCE_VERIFIED_CITATIONS',
   'NOTION_MCP_URL',
   'NOTION_MCP_AUTH_TOKEN',
   'SANITY_MCP_URL',
@@ -187,6 +188,11 @@ export function validateEnv() {
   config.DAILY_PUBLISH_MIN_RELEVANCE = Number.isNaN(dailyMin) ? 7.0 : dailyMin;
 
   config.PRODUCTION_TRIGGER_SECRET = (optional.PRODUCTION_TRIGGER_SECRET ?? '').trim();
+  const prejudgeCitationsRaw = optional.PREJUDGE_ENFORCE_VERIFIED_CITATIONS;
+  config.PREJUDGE_ENFORCE_VERIFIED_CITATIONS =
+    prejudgeCitationsRaw === ''
+      ? true
+      : ['1', 'true', 'yes', 'y'].includes(String(prejudgeCitationsRaw).toLowerCase());
   const enableXPostingRaw = optional.ENABLE_X_POSTING;
   config.ENABLE_X_POSTING =
     enableXPostingRaw === ''
