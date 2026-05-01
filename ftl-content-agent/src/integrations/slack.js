@@ -283,12 +283,19 @@ export async function sendSocialReviewMessage(client, channel, payload) {
   start('sendSocialReviewMessage');
   const channelId = normalizeChannelId(channel);
 
-  const linkedinPreview = payload.linkedinPost
-    ? truncate(payload.linkedinPost, 500)
+  // Show the full proposed post — no truncation. Reviewer needs to see exactly
+  // what will be published. Slack section blocks accept up to 3000 chars; LinkedIn
+  // posts are typically <1500 and X posts are <280, so a single block fits.
+  const linkedinFull = payload.linkedinPost
+    ? sliceForSlackSection(payload.linkedinPost)
     : '_No LinkedIn post generated._';
-  const xPreview = payload.xPost || '_No X post generated._';
-  const xThreadPreview = Array.isArray(payload.xThread) && payload.xThread.length
-    ? payload.xThread.map((t, i) => `${i + 1}. ${truncate(t, 200)}`).join('\n')
+  const xFull = payload.xPost
+    ? sliceForSlackSection(payload.xPost)
+    : '_No X post generated._';
+  const xThreadFull = Array.isArray(payload.xThread) && payload.xThread.length
+    ? sliceForSlackSection(
+        payload.xThread.map((t, i) => `${i + 1}. ${t}`).join('\n\n')
+      )
     : null;
 
   const blocks = [
@@ -307,19 +314,19 @@ export async function sendSocialReviewMessage(client, channel, payload) {
     { type: 'divider' },
     {
       type: 'section',
-      text: { type: 'mrkdwn', text: `*LinkedIn Post*\n${linkedinPreview}` },
+      text: { type: 'mrkdwn', text: `*LinkedIn Post (full)*\n${linkedinFull}` },
     },
     { type: 'divider' },
     {
       type: 'section',
-      text: { type: 'mrkdwn', text: `*X Post*\n${xPreview}` },
+      text: { type: 'mrkdwn', text: `*X Post (full)*\n${xFull}` },
     },
   ];
 
-  if (xThreadPreview) {
+  if (xThreadFull) {
     blocks.push({
       type: 'section',
-      text: { type: 'mrkdwn', text: `*X Thread*\n${xThreadPreview}` },
+      text: { type: 'mrkdwn', text: `*X Thread (full)*\n${xThreadFull}` },
     });
   }
 
@@ -419,6 +426,17 @@ function buildBodyPreview(blogBody, maxChars) {
 function truncate(text, max) {
   if (!text || text.length <= max) return text;
   return text.slice(0, max - 3) + '...';
+}
+
+// Slack section block text accepts up to 3000 chars. We hard-cap at 2900 to
+// leave room for surrounding labels and to avoid block-validation rejections.
+// Real social posts (LinkedIn ~1500, X ~280, X-thread ~1200 total) sit well
+// below this; the cap is a defensive backstop, not the common path.
+function sliceForSlackSection(text) {
+  const SECTION_LIMIT = 2900;
+  const s = String(text ?? '');
+  if (s.length <= SECTION_LIMIT) return s;
+  return s.slice(0, SECTION_LIMIT - 30) + '\n\n_… truncated by Slack block limit_';
 }
 
 function normalizeChannelId(channel) {
