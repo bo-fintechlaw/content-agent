@@ -90,6 +90,15 @@ export async function runJudging(supabase, config, options = {}) {
     const isPassing = verdict === 'PASS';
     const isRevise = verdict === 'REVISE';
 
+    // Pull any prejudge warnings (e.g. paywalled sources) that runPreJudgeQualityChecks
+    // persisted on judge_flags before this judge call. Preserve them across the
+    // upcoming judge_flags overwrite so the Slack review message can surface them.
+    const prejudgeWarnings = (Array.isArray(draft.judge_flags) ? draft.judge_flags : [])
+      .filter((f) => typeof f === 'string' && f.startsWith('prejudge_warning:'));
+    const manualVerificationNotes = prejudgeWarnings.map((w) =>
+      w.replace(/^prejudge_warning:\s*/, '').trim()
+    );
+
     // REVISE: send back to drafter if under revision limit (max 1 revision)
     if (isRevise && (draft.revision_count ?? 0) < 1) {
       await supabase
@@ -99,6 +108,7 @@ export async function runJudging(supabase, config, options = {}) {
           judge_scores: result.scores,
           judge_pass: false,
           judge_flags: [
+            ...prejudgeWarnings,
             ...(result.flags ?? []),
             ...(result.revision_instructions ?? []).map((i) => `revision: ${i}`),
           ],
@@ -124,7 +134,7 @@ export async function runJudging(supabase, config, options = {}) {
       .update({
         judge_scores: result.scores,
         judge_pass: judgePass,
-        judge_flags: result.flags ?? [],
+        judge_flags: [...prejudgeWarnings, ...(result.flags ?? [])],
       })
       .eq('id', draft.id);
 
@@ -149,6 +159,7 @@ export async function runJudging(supabase, config, options = {}) {
         linkedinPost: draft.linkedin_post,
         xPost: draft.x_post,
         revisionNotes: isPassing ? null : result.revision_instructions,
+        manualVerificationNotes,
         reviewUrl,
       });
     }

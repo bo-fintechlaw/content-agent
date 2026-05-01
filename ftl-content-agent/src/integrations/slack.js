@@ -64,6 +64,24 @@ export async function sendReviewMessage(client, channel, payload) {
     });
   }
 
+  // Manual verification notes — paywalled / bot-blocked sources the prejudge
+  // gate could not auto-verify. Surfaced to the human reviewer as a heads-up.
+  if (
+    payload.manualVerificationNotes &&
+    Array.isArray(payload.manualVerificationNotes) &&
+    payload.manualVerificationNotes.length
+  ) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          `:warning: *Manually verify these sources:*\n` +
+          payload.manualVerificationNotes.map((n) => `- ${truncate(n, 250)}`).join('\n'),
+      },
+    });
+  }
+
   // Judge notes for drafts that did not fully pass
   if (payload.revisionNotes && Array.isArray(payload.revisionNotes) && payload.revisionNotes.length) {
     blocks.push({

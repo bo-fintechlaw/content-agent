@@ -206,8 +206,15 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
     draftId,
     blocked: citationGate.blocked,
     flags: citationGate.flags,
+    warnings: citationGate.warnings,
   });
   updates.blog_body = citationGate.blogBody;
+  // Persist soft warnings (paywalled sources) on judge_flags so they survive
+  // the judge's flag overwrite and surface in the Slack review message.
+  if (Array.isArray(citationGate.warnings) && citationGate.warnings.length) {
+    const existingFlags = Array.isArray(draft.judge_flags) ? draft.judge_flags : [];
+    updates.judge_flags = [...existingFlags, ...citationGate.warnings];
+  }
 
   start('runPreJudgeQualityChecks:compile');
   const imageRef = await ensureDraftImageAsset({
@@ -229,6 +236,7 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
     const nextFlags = [
       ...(Array.isArray(draft.judge_flags) ? draft.judge_flags : []),
       ...citationGate.flags,
+      ...(citationGate.warnings ?? []),
     ];
     await supabase
       .from('content_drafts')
@@ -238,6 +246,20 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
       .from('content_topics')
       .update({ status: 'revision', updated_at: new Date().toISOString() })
       .eq('id', draft.topic_id);
+    // Notify Slack so prejudge failures are not silent. Best-effort — do not
+    // throw if Slack itself errors.
+    try {
+      await sendPrejudgeBlockedNotification({
+        config,
+        draftId,
+        topicId: draft.topic_id,
+        topicTitle: draft.content_topics?.title ?? draft.blog_title ?? '(untitled)',
+        topicSourceUrl: draft.content_topics?.source_url ?? '',
+        flags: citationGate.flags,
+      });
+    } catch (slackErr) {
+      fail('runPreJudgeQualityChecks:slack', slackErr, { draftId });
+    }
     return {
       blocked: true,
       reason: 'missing_verified_citations',
@@ -320,17 +342,36 @@ async function enforceCitationRequirements({
       subagent = null;
     }
   }
+  // Paywall / bot-blocking statuses. The source genuinely exists; our fetcher
+  // just cannot read it. Treat as "verified existence, manual review needed"
+  // rather than "missing", so Cloudflare-protected sites (theblock.co, etc.)
+  // do not silently fail the whole pipeline.
+  const PAYWALL_STATUSES = new Set([401, 403, 410, 451]);
   const verified = fetches.filter((f) => f.ok);
+  const paywalled = fetches.filter((f) => PAYWALL_STATUSES.has(Number(f.status)));
+
   const primaryVerified = primary
     ? fetches.some((v) => v.ok && samePrimarySource(v.url, primary, v.finalUrl))
     : false;
-  const secondary = verified.find(
-    (v) =>
-      !samePrimarySource(v.url, primary, v.finalUrl)
+  const primaryPaywalled = primary && !primaryVerified
+    ? paywalled.some((v) => samePrimarySource(v.url, primary, v.finalUrl))
+    : false;
+
+  const secondaryVerified = verified.find(
+    (v) => !samePrimarySource(v.url, primary, v.finalUrl)
   );
+  const secondaryPaywalled = !secondaryVerified
+    ? paywalled.find((v) => !samePrimarySource(v.url, primary, v.finalUrl))
+    : null;
+  // For citation block + URL surfacing, prefer verified, fall back to paywalled.
+  const secondary = secondaryVerified || secondaryPaywalled;
 
   let blogBody = Array.isArray(draft.blog_body) ? [...draft.blog_body] : [];
-  if (primaryVerified && primary && blogBody.length) {
+  // Append the primary source URL to the opening paragraph if (a) it's verified
+  // OR (b) it's paywalled (still a real source — reader can click). The drafter
+  // already cited it inline; this is a defensive backstop.
+  const primaryUsable = primaryVerified || primaryPaywalled;
+  if (primaryUsable && primary && blogBody.length) {
     const firstBody = String(blogBody[0]?.body ?? '');
     if (!firstBody.includes(primary)) {
       blogBody[0] = {
@@ -340,12 +381,14 @@ async function enforceCitationRequirements({
     }
   }
   const citationLines = [];
-  if (primaryVerified && primary) {
-    citationLines.push(`- **Primary source:** [Original report](${primary})`);
+  if (primaryUsable && primary) {
+    const tag = primaryPaywalled && !primaryVerified ? ' (paywalled — verify manually)' : '';
+    citationLines.push(`- **Primary source:** [Original report](${primary})${tag}`);
   }
   if (secondary?.finalUrl || secondary?.url) {
     const secondaryUrl = secondary.finalUrl || secondary.url;
-    citationLines.push(`- **Secondary source:** [Independent verification](${secondaryUrl})`);
+    const tag = !secondaryVerified && secondaryPaywalled ? ' (paywalled — verify manually)' : '';
+    citationLines.push(`- **Secondary source:** [Independent verification](${secondaryUrl})${tag}`);
   }
   if (citationLines.length) {
     blogBody.push({
@@ -356,11 +399,29 @@ async function enforceCitationRequirements({
   }
 
   if (!enforce) {
-    return { blocked: false, blogBody, flags: [] };
+    return { blocked: false, blogBody, flags: [], warnings: [] };
   }
+  // Hard blocks: source truly missing / unreachable / misrepresented
   const missing = [];
-  if (!primaryVerified) missing.push('missing_verified_primary_citation');
-  if (!secondary) missing.push('missing_verified_secondary_citation');
+  // Soft warnings: source exists but cannot be auto-verified (paywall / bot block).
+  // Manual review needed but pipeline continues.
+  const warnings = [];
+
+  if (!primary) {
+    missing.push('missing_primary_source_url');
+  } else if (!primaryVerified && !primaryPaywalled) {
+    missing.push('missing_verified_primary_citation');
+  } else if (primaryPaywalled && !primaryVerified) {
+    warnings.push(`primary_source_paywalled: ${primary}`);
+  }
+
+  if (!secondary) {
+    missing.push('missing_verified_secondary_citation');
+  } else if (!secondaryVerified && secondaryPaywalled) {
+    const url = secondaryPaywalled.finalUrl || secondaryPaywalled.url;
+    warnings.push(`secondary_source_paywalled: ${url}`);
+  }
+
   if (Array.isArray(subagent?.assessments)) {
     const hasBroken = subagent.assessments.some(
       (a) => a?.verdict === 'broken_or_unreachable' || a?.verdict === 'misaligned'
@@ -371,6 +432,7 @@ async function enforceCitationRequirements({
     blocked: missing.length > 0,
     blogBody,
     flags: missing.map((m) => `prejudge:${m}`),
+    warnings: warnings.map((w) => `prejudge_warning:${w}`),
   };
 }
 
@@ -398,6 +460,31 @@ function sameUrlHost(a, b) {
   } catch {
     return false;
   }
+}
+
+async function sendPrejudgeBlockedNotification({
+  config,
+  draftId,
+  topicId,
+  topicTitle,
+  topicSourceUrl,
+  flags,
+}) {
+  const token = config.SLACK_BOT_TOKEN;
+  const channel = config.SLACK_CHANNEL_ID;
+  if (!token || !channel) return;
+  const slack = createSlackClient(token);
+  const flagList = (flags ?? []).map((f) => `• ${f}`).join('\n');
+  const text =
+    `⚠️ *Prejudge gate blocked a draft — manual action needed*\n\n` +
+    `*Topic:* ${topicTitle}\n` +
+    `*Source:* ${topicSourceUrl || '(none)'}\n` +
+    `*Topic ID:* \`${topicId}\`\n` +
+    `*Draft ID:* \`${draftId}\`\n\n` +
+    `*Reasons:*\n${flagList}\n\n` +
+    `The draft was created but cannot reach the judge. Either fix the source URL, ` +
+    `archive the topic, or run \`/api/start-production?topicId=${topicId}\` after fixing.`;
+  await slack.chat.postMessage({ channel, text });
 }
 
 async function ensureDraftImageAsset({ config, draft }) {
