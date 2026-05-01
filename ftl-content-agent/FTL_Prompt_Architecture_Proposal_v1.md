@@ -1,8 +1,8 @@
 # FTL Content Agent — Prompt & Multi-Agent Architecture Proposal v1
 
-**Status:** Draft proposal, not yet implemented
+**Status:** Phase 1 complete (2026-04-30); Phases 2-4 future work
 **Author:** Architecture review, 2026-04-30
-**Companion to:** `FTL_Content_Agent_Architecture_Spec_v1_0.md` (system-level spec)
+**Companion to:** `CLAUDE.md` (system-level spec) and `FTL_Pipeline_Roadmap_v1.md` (product roadmap)
 
 ---
 
