@@ -3,6 +3,7 @@ import { createSlackClient, sendReviewMessage } from '../integrations/slack.js';
 import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from '../prompts/judge-system.js';
 import { extractHttpUrlsFromDraft, fetchAllCitationPreviews } from './citation-harvest.js';
 import { runCitationVerificationSubagent } from './citation-subagent.js';
+import { runClaimVerificationSubagent } from './claim-verification-subagent.js';
 import {
   computeJudgeComposite,
   deriveJudgeVerdict,
@@ -51,11 +52,15 @@ export async function runJudging(supabase, config, options = {}) {
 
     const citedUrls = extractHttpUrlsFromDraft(draft);
     const linkFetches = await fetchAllCitationPreviews(citedUrls);
-    const subagent = await runCitationVerificationSubagent(client, config, {
-      draft,
-      fetches: linkFetches,
-    });
-    const linkContext = { fetches: linkFetches, subagent };
+    const [subagent, claimVerification] = await Promise.all([
+      runCitationVerificationSubagent(client, config, { draft, fetches: linkFetches }),
+      runClaimVerificationSubagent(client, config, { draft }),
+    ]);
+    const linkContext = { fetches: linkFetches, subagent, claimVerification };
+
+    const contradictedClaims = (claimVerification?.assessments ?? []).filter(
+      (a) => a.verdict === 'contradicted'
+    );
 
     let result;
     try {
@@ -86,7 +91,15 @@ export async function runJudging(supabase, config, options = {}) {
     // Any composite/verdict the LLM happens to return is ignored.
     const normalizedScores = normalizeJudgeScores(result.scores);
     const composite = computeJudgeComposite(normalizedScores);
-    const verdict = deriveJudgeVerdict({ composite, scores: normalizedScores });
+    let verdict = deriveJudgeVerdict({ composite, scores: normalizedScores });
+
+    // Hard override: any contradicted factual claim forces at least REVISE.
+    // The drafter gets one shot to fix it; if it's already used its revision,
+    // we keep the LLM-derived verdict but surface the contradiction to Slack.
+    if (contradictedClaims.length && verdict === 'PASS') {
+      verdict = 'REVISE';
+    }
+
     const isPassing = verdict === 'PASS';
     const isRevise = verdict === 'REVISE';
 
@@ -99,6 +112,31 @@ export async function runJudging(supabase, config, options = {}) {
       w.replace(/^prejudge_warning:\s*/, '').trim()
     );
 
+    // Surface any contradicted factual claims to the human reviewer in Slack,
+    // even if the draft is going to PASS or has already exhausted revisions.
+    for (const c of contradictedClaims) {
+      const note = `Factually contradicted claim: "${c.claim}". ${c.rationale}${
+        c.evidence_url ? ` (source: ${c.evidence_url})` : ''
+      }`;
+      manualVerificationNotes.push(note);
+    }
+
+    // Inject contradicted claims as explicit revision instructions when we're sending
+    // back to the drafter — the LLM judge should already do this from the prompt, but
+    // we belt-and-suspenders it so a contradiction never silently slips through.
+    const contradictedRevisionInstructions = contradictedClaims.map(
+      (c) =>
+        `Correct this factually contradicted claim: "${c.claim}". Per ${
+          c.evidence_url || 'authoritative sources'
+        }: ${c.rationale}`
+    );
+    const allRevisionInstructions = [
+      ...contradictedRevisionInstructions,
+      ...(result.revision_instructions ?? []),
+    ];
+
+    const contradictedFlag = contradictedClaims.length ? ['factually_contradicted'] : [];
+
     // REVISE: send back to drafter if under revision limit (max 1 revision)
     if (isRevise && (draft.revision_count ?? 0) < 1) {
       await supabase
@@ -110,7 +148,8 @@ export async function runJudging(supabase, config, options = {}) {
           judge_flags: [
             ...prejudgeWarnings,
             ...(result.flags ?? []),
-            ...(result.revision_instructions ?? []).map((i) => `revision: ${i}`),
+            ...contradictedFlag,
+            ...allRevisionInstructions.map((i) => `revision: ${i}`),
           ],
         })
         .eq('id', draft.id);
@@ -134,7 +173,7 @@ export async function runJudging(supabase, config, options = {}) {
       .update({
         judge_scores: result.scores,
         judge_pass: judgePass,
-        judge_flags: [...prejudgeWarnings, ...(result.flags ?? [])],
+        judge_flags: [...prejudgeWarnings, ...(result.flags ?? []), ...contradictedFlag],
       })
       .eq('id', draft.id);
 
@@ -158,7 +197,7 @@ export async function runJudging(supabase, config, options = {}) {
         blogBody: draft.blog_body,
         linkedinPost: draft.linkedin_post,
         xPost: draft.x_post,
-        revisionNotes: isPassing ? null : result.revision_instructions,
+        revisionNotes: isPassing ? null : allRevisionInstructions,
         manualVerificationNotes,
         reviewUrl,
       });

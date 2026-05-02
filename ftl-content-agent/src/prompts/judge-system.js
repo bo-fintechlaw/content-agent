@@ -7,6 +7,12 @@ When a section titled "CITATION_VERIFICATION" and "HTTP_FETCHES" is present, it 
 - If any link is misaligned, broken (4xx/5xx/timeout), or the subagent flags misrepresents_source or broken_or_unreachable, you must cite that in revision_instructions and lower the accuracy score until the issue is fixed (unless the whole draft is unsalvageable, in which case score accuracy below 5).
 - Merge subagent flags into your own "flags" array where appropriate (e.g. broken_citation, source_misaligned).
 
+When a section titled "CLAIM_VERIFICATION" is present, it comes from a separate web-search-enabled subagent that extracted load-bearing factual claims from the draft and verified each against current authoritative sources. You MUST:
+- Treat any claim with verdict "contradicted" as a hard accuracy failure. Lower accuracy to 4 or below and write a SPECIFIC revision_instruction quoting the contradicted claim and stating the corrected fact (drawn from the subagent's rationale and evidence_url).
+- Treat "unverifiable" claims as soft signals. If the claim is load-bearing and unverifiable, suggest in revision_instructions that the drafter add a citation or soften the assertion.
+- Add a "factually_contradicted" flag to your flags array if any claim is contradicted.
+- Do NOT rescore voice/structure/SEO based on claim verification — it only affects accuracy.
+
 SCORING RUBRIC (0-10 scale per criterion)
 
 1. ACCURACY (weight: 1.5x — highest)
@@ -50,9 +56,15 @@ GOOD (specific, actionable): "Move the $150,000 penalty to sentence 1. Replace '
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
 export function buildJudgeUserPrompt({ draft, linkContext = null }) {
-  const linkBlock =
-    linkContext && (linkContext.fetches?.length || linkContext.subagent)
-      ? `
+  const hasLinkContext =
+    linkContext && (linkContext.fetches?.length || linkContext.subagent);
+  const hasClaimContext =
+    linkContext?.claimVerification &&
+    Array.isArray(linkContext.claimVerification.assessments) &&
+    linkContext.claimVerification.assessments.length;
+
+  const linkBlock = hasLinkContext
+    ? `
 HTTP_FETCHES (per cited URL: status, title, text preview; status 0 = error/timeout):
 ${JSON.stringify(linkContext.fetches ?? [], null, 2)}
 
@@ -61,10 +73,19 @@ ${JSON.stringify(linkContext.subagent ?? {}, null, 2)}
 
 You must factor the subagent's assessments and any broken links into accuracy, flags, and revision_instructions. If any assessment is "misaligned" or subagent reported broken links, lower accuracy and add a specific revision instruction.
 `
-      : '';
+    : '';
+
+  const claimBlock = hasClaimContext
+    ? `
+CLAIM_VERIFICATION (web-search subagent: did load-bearing factual claims hold up against current authoritative sources?):
+${JSON.stringify(linkContext.claimVerification, null, 2)}
+
+If any assessment has verdict "contradicted", you MUST lower accuracy to 4 or below, add a "factually_contradicted" flag, and write a revision_instruction that quotes the bad claim and states the correction (use the rationale + evidence_url).
+`
+    : '';
 
   return `Evaluate this draft for FinTech Law LLC's content pipeline.
-${linkBlock}
+${linkBlock}${claimBlock}
 Blog title: ${draft.blog_title ?? '(missing)'}
 
 Blog body:

@@ -51,6 +51,48 @@ export async function promptJson(client, args) {
 }
 
 /**
+ * Like promptJson but enables Anthropic's server-managed web_search tool.
+ * The model may invoke web_search up to maxSearches times during a single turn;
+ * Anthropic runs the searches and returns the model's final text response.
+ *
+ * @param {Anthropic} client
+ * @param {{ system: string, user: string, model?: string, maxTokens?: number, temperature?: number, maxSearches?: number }} args
+ */
+export async function promptWithWebSearchJson(client, args) {
+  start('promptWithWebSearchJson');
+  const result = await breaker.execute(
+    async () => {
+      const resp = await client.messages.create({
+        model: args.model ?? 'claude-sonnet-4-6',
+        max_tokens: args.maxTokens ?? 4_000,
+        temperature: args.temperature ?? 0.1,
+        system: args.system,
+        tools: [
+          {
+            type: 'web_search_20250305',
+            name: 'web_search',
+            max_uses: args.maxSearches ?? 8,
+          },
+        ],
+        messages: [{ role: 'user', content: args.user }],
+      });
+      const text =
+        resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
+        '';
+      return parseJsonResponse(text);
+    },
+    { error: 'anthropic_unavailable' }
+  );
+
+  if (result?.error) {
+    fail('promptWithWebSearchJson', new Error(result.error));
+    throw new Error(result.error);
+  }
+  success('promptWithWebSearchJson');
+  return result;
+}
+
+/**
  * Attempts to parse JSON object even if wrapped in markdown fences.
  * Handles common issues: markdown wrapping, trailing commas, truncation.
  * @param {string} text

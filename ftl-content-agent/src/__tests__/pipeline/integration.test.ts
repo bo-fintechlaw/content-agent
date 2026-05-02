@@ -229,6 +229,17 @@ jest.unstable_mockModule('../../pipeline/citation-subagent.js', () => ({
   ),
 }));
 
+jest.unstable_mockModule('../../pipeline/claim-verification-subagent.js', () => ({
+  runClaimVerificationSubagent: jest.fn<any>(() =>
+    Promise.resolve({
+      assessments: [],
+      subagent_flags: [],
+      subagent_summary: 'mocked: claim verification skipped in integration test.',
+      contradicted_count: 0,
+    })
+  ),
+}));
+
 // ---------- import pipeline modules after mocks ----------
 const { runTopicRanking } = await import('../../pipeline/ranker.js');
 const { runDrafting } = await import('../../pipeline/drafter.js');
