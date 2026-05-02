@@ -3,6 +3,8 @@ import express from 'express';
 import { fail, start, success } from '../utils/logger.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
+import { reviseBlogContent } from '../pipeline/blog-reviser.js';
+import { runJudging } from '../pipeline/judge.js';
 import { createSlackClient, openFeedbackModal, sendSocialReviewMessage } from '../integrations/slack.js';
 
 export function createSlackWebhookRouter(supabase, config) {
@@ -137,38 +139,24 @@ async function handleViewSubmission(supabase, config, payload, res) {
     return;
   }
 
-  // Blog feedback: reset draft for full revision cycle
+  // Blog feedback: targeted revision in place. The reviser updates only the
+  // sections the feedback addresses; the rest of the draft (and the existing
+  // image asset) is preserved. Then re-judge so the new Slack review shows
+  // fresh scores. Topic status stays at `review` throughout so the drafter
+  // cron does NOT pick it up for a full redraft.
+  res.status(200).json({ response_action: 'clear' });
+
   try {
-    const { data: draft, error: fetchErr } = await supabase
-      .from('content_drafts')
-      .select('id, topic_id, revision_count, judge_flags')
-      .eq('id', draftId)
-      .single();
-    if (fetchErr) throw new Error(fetchErr.message);
-
-    const existingFlags = Array.isArray(draft.judge_flags) ? draft.judge_flags : [];
-
-    await supabase
-      .from('content_drafts')
-      .update({
-        judge_pass: null,
-        judge_scores: null,
-        revision_count: (draft.revision_count ?? 0) + 1,
-        judge_flags: [...existingFlags, `human_feedback: ${feedback.trim()}`],
-      })
-      .eq('id', draftId);
-
-    await supabase
-      .from('content_topics')
-      .update({ status: 'revision', updated_at: new Date().toISOString() })
-      .eq('id', draft.topic_id);
-
-    success('handleViewSubmission:blog', { draftId, feedback: feedback.slice(0, 100) });
+    await reviseBlogContent(supabase, config, draftId, feedback.trim());
+    await runJudging(supabase, config, { draftId });
+    success('handleViewSubmission:blog', {
+      draftId,
+      feedback: feedback.slice(0, 100),
+    });
   } catch (error) {
-    fail('handleViewSubmission:blog', error);
+    fail('handleViewSubmission:blog', error, { draftId });
   }
-
-  return res.status(200).json({ response_action: 'clear' });
+  return;
 }
 
 function verifySlackRequest(req, signingSecret) {

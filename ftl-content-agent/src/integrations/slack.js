@@ -62,6 +62,15 @@ export async function sendReviewMessage(client, channel, payload) {
         text: `*Full draft:* <${payload.reviewUrl}|Open full post for review>`,
       },
     });
+  } else {
+    // Surface the missing-link case instead of silently dropping the block.
+    // The reviewer needs the preview to evaluate the draft; failing quietly
+    // (as happened on the 7 AM cron) wastes a review cycle.
+    fail(
+      'sendReviewMessage',
+      new Error('reviewUrl missing — APP_BASE_URL likely unset in runtime env'),
+      { draftId: payload.draftId }
+    );
   }
 
   // Manual verification notes — paywalled / bot-blocked sources the prejudge
@@ -418,9 +427,23 @@ function buildBodyPreview(blogBody, maxChars) {
   for (const section of blogBody) {
     if (preview.length >= maxChars) break;
     if (section.title) preview += `*${section.title}*\n`;
-    if (section.body) preview += section.body + '\n\n';
+    if (section.body) preview += mdToSlackMrkdwn(section.body) + '\n\n';
   }
   return truncate(preview.trim(), maxChars);
+}
+
+// Slack mrkdwn uses <url|label> for links and *text* for bold; the drafter
+// emits GitHub-flavored markdown ([label](url) and **text**). Without this
+// conversion, Slack renders the brackets/parens literally — turning citations
+// into "term (https://very-long-url)" parenthetical strings.
+function mdToSlackMrkdwn(text) {
+  let out = String(text ?? '');
+  out = out.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_match, label, url) => `<${url}|${label}>`
+  );
+  out = out.replace(/\*\*([^*]+)\*\*/g, '*$1*');
+  return out;
 }
 
 function truncate(text, max) {

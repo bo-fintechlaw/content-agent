@@ -5,6 +5,19 @@ export function xaiKeyFromProcessEnv() {
   return (process.env.XAI_API_KEY || process.env.GROK_API_KEY || '').trim();
 }
 
+// Slack review messages embed a "Full draft" preview link built from this base.
+// Prefer an explicit APP_BASE_URL; fall back to Railway's RAILWAY_PUBLIC_DOMAIN
+// (set automatically on any service with a public domain) so the link survives
+// env drift on Railway without a manual env-var fix.
+function resolveAppBaseUrl(explicit) {
+  const fromExplicit = String(explicit ?? '').trim();
+  if (fromExplicit) return fromExplicit;
+  const railwayDomain = String(process.env.RAILWAY_PUBLIC_DOMAIN ?? '').trim();
+  if (!railwayDomain) return '';
+  const stripped = railwayDomain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return `https://${stripped}`;
+}
+
 /** Must be present and non-empty (trimmed). */
 const REQUIRED_NON_EMPTY = [
   'ANTHROPIC_API_KEY',
@@ -135,7 +148,7 @@ export function validateEnv() {
     NOTION_DB_REGULATORY_TRACKER:
       optional.NOTION_DB_REGULATORY_TRACKER?.trim() ?? '',
     NOTION_DB_ACTIVITY_LOG: optional.NOTION_DB_ACTIVITY_LOG?.trim() ?? '',
-    APP_BASE_URL: optional.APP_BASE_URL?.trim() ?? '',
+    APP_BASE_URL: resolveAppBaseUrl(optional.APP_BASE_URL),
     PORT: port,
     NODE_ENV: nodeEnv,
   };

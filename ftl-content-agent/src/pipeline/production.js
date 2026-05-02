@@ -367,19 +367,12 @@ async function enforceCitationRequirements({
   const secondary = secondaryVerified || secondaryPaywalled;
 
   let blogBody = Array.isArray(draft.blog_body) ? [...draft.blog_body] : [];
-  // Append the primary source URL to the opening paragraph if (a) it's verified
-  // OR (b) it's paywalled (still a real source — reader can click). The drafter
-  // already cited it inline; this is a defensive backstop.
+  // Primary-source backstop intentionally NOT injected into the opening section.
+  // The drafter already cites it inline in natural prose, and the "Verified Sources"
+  // block below restates it at the end. Reviewer feedback (2026-05-02) called the
+  // duplicated explicit "Primary source: Original Report" line in the intro
+  // out-of-place; the judge had separately flagged it as editorial_artifact.
   const primaryUsable = primaryVerified || primaryPaywalled;
-  if (primaryUsable && primary && blogBody.length) {
-    const firstBody = String(blogBody[0]?.body ?? '');
-    if (!firstBody.includes(primary)) {
-      blogBody[0] = {
-        ...blogBody[0],
-        body: `${firstBody}\n\nPrimary source: [Original report](${primary}).`,
-      };
-    }
-  }
   const citationLines = [];
   if (primaryUsable && primary) {
     const tag = primaryPaywalled && !primaryVerified ? ' (paywalled — verify manually)' : '';
