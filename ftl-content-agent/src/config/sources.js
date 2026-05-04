@@ -19,41 +19,41 @@ export const RSS_FEEDS = [
     sourceName: 'SEC Press Releases',
   },
   {
-    url: 'https://www.sec.gov/litigation/litreleases.rss',
+    url: 'https://www.sec.gov/enforcement-litigation/litigation-releases/rss',
     category: 'regulatory',
     sourceName: 'SEC Litigation Releases',
   },
   {
-    url: 'https://www.cftc.gov/Newsroom/PressReleases/RSS',
+    url: 'https://www.sec.gov/news/speeches-statements.rss',
     category: 'regulatory',
-    sourceName: 'CFTC Press Releases',
+    sourceName: 'SEC Speeches & Statements',
   },
   {
-    url: 'https://www.occ.treas.gov/news-issuances/news-releases/rss-feed.xml',
+    url: 'https://www.occ.gov/rss/occ_news.xml',
     category: 'regulatory',
-    sourceName: 'OCC News Releases',
+    sourceName: 'OCC News',
   },
   {
-    url: 'https://www.fincen.gov/news/news-releases/rss.xml',
+    url: 'https://www.occ.gov/rss/occ-speeches.xml',
     category: 'regulatory',
-    sourceName: 'FinCEN News',
+    sourceName: 'OCC Speeches',
   },
   {
     url: 'https://www.consumerfinance.gov/about-us/newsroom/feed/',
     category: 'regulatory',
     sourceName: 'CFPB Newsroom',
   },
+  // CFTC RSS feeds (rssenf, rssgp, rssst) all return HTTP 403 even with a
+  // browser User-Agent — actively WAF-blocked. Re-add when we have a way
+  // around the block (proxy, allowlisted IP, etc.).
+  // FinCEN doesn't publish RSS (the /news, /news/speeches, /news/press-releases
+  // URLs are HTML landing pages, not feeds). Re-add when they ship one.
 
   // ── AI, Legal Tech & RegTech ──────────────────────────────────
   {
     url: 'https://www.artificiallawyer.com/feed/',
     category: 'ai_legal_tech',
     sourceName: 'Artificial Lawyer',
-  },
-  {
-    url: 'https://technews.acm.org/archives.cfm?fo=rss',
-    category: 'ai_legal_tech',
-    sourceName: 'ACM TechNews',
   },
   {
     url: 'https://techcrunch.com/category/artificial-intelligence/feed/',
@@ -65,22 +65,13 @@ export const RSS_FEEDS = [
     category: 'ai_legal_tech',
     sourceName: 'VentureBeat AI',
   },
+  // ACM TechNews has no public RSS feed at any standard path — removed.
 
   // ── AI Companies & Research ───────────────────────────────────
   {
-    url: 'https://www.therundown.ai/feed',
-    category: 'ai_legal_tech',
-    sourceName: 'The Rundown AI',
-  },
-  {
-    url: 'https://rohanpaul.substack.com/feed',
+    url: 'https://www.rohan-paul.com/feed',
     category: 'ai_legal_tech',
     sourceName: "Rohan's Bytes",
-  },
-  {
-    url: 'https://www.anthropic.com/rss.xml',
-    category: 'ai_legal_tech',
-    sourceName: 'Anthropic',
   },
   {
     url: 'https://openai.com/blog/rss.xml',
@@ -92,6 +83,8 @@ export const RSS_FEEDS = [
     category: 'ai_legal_tech',
     sourceName: 'NVIDIA Blog',
   },
+  // Anthropic and The Rundown AI dropped — neither publishes a working RSS
+  // at the previously-listed paths. Re-add if/when they do.
 
   // ── Crypto, Digital Assets & DeFi ─────────────────────────────
   {
@@ -127,11 +120,6 @@ export const RSS_FEEDS = [
     sourceName: 'PYMNTS',
   },
   {
-    url: 'https://www.americanbanker.com/feed',
-    category: 'startup',
-    sourceName: 'American Banker',
-  },
-  {
     url: 'https://news.crunchbase.com/feed/',
     category: 'startup',
     sourceName: 'Crunchbase News',
@@ -141,4 +129,6 @@ export const RSS_FEEDS = [
     category: 'startup',
     sourceName: 'TechCrunch Fintech',
   },
+  // American Banker dropped — /feed returns HTML (paywall/login redirect),
+  // not a parseable RSS body.
 ];

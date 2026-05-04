@@ -15,8 +15,10 @@ import { registerLinkedInOAuthDevCallback } from './routes/linkedin-oauth.js';
 import {
   createSlackClient,
   sendDailyNoDraftNotification,
+  sendFeedHealthReport,
   sendMondaySearchAndRankReport,
 } from './integrations/slack.js';
+import { runFeedHealthCheck } from './utils/feed-health.js';
 import { fail, start, success } from './utils/logger.js';
 import { withCronRun } from './utils/cron-runs.js';
 
@@ -92,6 +94,16 @@ async function main() {
             });
           } catch (slackErr) {
             fail('cron:weeklyScanAndRank:slack', slackErr);
+          }
+          // Feed-health report: runs after scan+rank so the user knows which
+          // sources are pulling cleanly. Best-effort — a Slack failure here
+          // shouldn't poison the cron's outcome record.
+          try {
+            const health = await runFeedHealthCheck();
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendFeedHealthReport(slack, config.SLACK_CHANNEL_ID, health);
+          } catch (healthErr) {
+            fail('cron:weeklyScanAndRank:feedHealth', healthErr);
           }
           return { scan, rank };
         });

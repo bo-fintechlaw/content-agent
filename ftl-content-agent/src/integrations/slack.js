@@ -289,6 +289,95 @@ export async function sendDailyNoDraftNotification(client, channel, details) {
 }
 
 /**
+ * Weekly RSS feed health report. Posted after Monday 6 AM scan + rank so the
+ * user knows which sources are pulling cleanly and which need attention.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {string} channel
+ * @param {{
+ *   total: number,
+ *   healthy: number,
+ *   broken: number,
+ *   results: Array<{ sourceName: string, url: string, status: number, ok: boolean, parsesAsRss: boolean, firstPubDate: string | null, error: string | null }>,
+ * }} report
+ */
+export async function sendFeedHealthReport(client, channel, report) {
+  start('sendFeedHealthReport');
+  const channelId = normalizeChannelId(channel);
+
+  const brokenRows = (report.results ?? []).filter((r) => !r.ok || !r.parsesAsRss);
+  const healthyRows = (report.results ?? []).filter((r) => r.ok && r.parsesAsRss);
+
+  const brokenBlock = brokenRows.length
+    ? brokenRows
+        .map((r) => `• *${r.sourceName}* — ${r.error || `HTTP ${r.status}`}`)
+        .join('\n')
+    : '_None_';
+
+  // Healthy list as a compact comma-separated line; staleness flag for any
+  // feed whose latest item is older than 14 days.
+  const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const staleRows = healthyRows.filter((r) => {
+    if (!r.firstPubDate) return false;
+    const t = Date.parse(r.firstPubDate);
+    return Number.isFinite(t) && now - t > fourteenDaysMs;
+  });
+  const staleBlock = staleRows.length
+    ? staleRows
+        .map((r) => `• *${r.sourceName}* — last item ${r.firstPubDate}`)
+        .join('\n')
+    : '_None_';
+
+  const headline = report.broken
+    ? `${report.healthy}/${report.total} feeds healthy — ${report.broken} need attention`
+    : `${report.healthy}/${report.total} feeds healthy`;
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: 'RSS Feed Health — Weekly', emoji: true },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*${headline}*` },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Broken or unparseable:*\n${truncate(brokenBlock, 2500)}`,
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Stale (no new items in 14+ days):*\n${truncate(staleBlock, 2500)}`,
+      },
+    },
+  ];
+
+  const result = await breaker.execute(
+    () =>
+      client.chat.postMessage({
+        channel: channelId,
+        text: `RSS feed health: ${headline}`,
+        blocks,
+      }),
+    { ok: false, error: 'slack_unavailable' }
+  );
+  if (!result.ok) {
+    const err = new Error(String(result.error ?? 'slack_post_failed'));
+    fail('sendFeedHealthReport', err, { channelId });
+  } else {
+    success('sendFeedHealthReport', { ts: result.ts, healthy: report.healthy, broken: report.broken });
+  }
+  return result;
+}
+
+/**
  * Sent when the judge produces a substantive REJECT verdict (composite < 5 or
  * accuracy < 5) — typically triggered by claim-verification flagging contradicted
  * facts. Distinct from a fallback REJECT (which is an Anthropic outage and gets
