@@ -16,6 +16,23 @@ export function createSlackClient(token) {
   }
 }
 
+/**
+ * Post a single-line status update to Slack. Used for ack messages
+ * ("Approved — publishing now"), success confirmations ("Published: <url>"),
+ * and error reports. Returns the breaker result; never throws.
+ *
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {string} channel
+ * @param {string} text
+ */
+export async function sendStatusMessage(client, channel, text) {
+  const channelId = normalizeChannelId(channel);
+  return await breaker.execute(
+    () => client.chat.postMessage({ channel: channelId, text }),
+    { ok: false, error: 'slack_unavailable' }
+  );
+}
+
 export async function sendReviewMessage(client, channel, payload) {
   start('sendReviewMessage');
   const channelId = normalizeChannelId(channel);

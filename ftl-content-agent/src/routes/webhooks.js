@@ -5,7 +5,12 @@ import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { reviseBlogContent } from '../pipeline/blog-reviser.js';
 import { runJudging } from '../pipeline/judge.js';
-import { createSlackClient, openFeedbackModal, sendSocialReviewMessage } from '../integrations/slack.js';
+import {
+  createSlackClient,
+  openFeedbackModal,
+  sendSocialReviewMessage,
+  sendStatusMessage,
+} from '../integrations/slack.js';
 
 export function createSlackWebhookRouter(supabase, config) {
   const router = express.Router();
@@ -48,17 +53,40 @@ export function createSlackWebhookRouter(supabase, config) {
             .update({ judge_pass: true })
             .eq('id', draftId);
           await setTopicStatusFromDraft(supabase, draftId, 'approved');
+          const ackSlack = createSlackClient(config.SLACK_BOT_TOKEN);
+          try {
+            await sendStatusMessage(
+              ackSlack,
+              config.SLACK_CHANNEL_ID,
+              ':white_check_mark: Approved — publishing to Sanity…'
+            );
+          } catch (slackErr) {
+            fail('approveAck', slackErr, { draftId });
+          }
           publishDraftToSanity(supabase, config, draftId)
             .then(async () => {
-              // After successful Sanity publish, send social posts for review
               try {
                 const { data: draft } = await supabase
                   .from('content_drafts')
-                  .select('id, blog_title, linkedin_post, x_post, x_thread')
+                  .select('id, blog_title, blog_slug, linkedin_post, x_post, x_thread')
                   .eq('id', draftId)
                   .single();
                 if (draft) {
                   const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+                  const blogUrl = draft.blog_slug
+                    ? `https://fintechlaw.ai/blog/${draft.blog_slug}`
+                    : '';
+                  try {
+                    await sendStatusMessage(
+                      slack,
+                      config.SLACK_CHANNEL_ID,
+                      blogUrl
+                        ? `:memo: Published: ${blogUrl}`
+                        : ':memo: Published to Sanity (slug missing — check live site).'
+                    );
+                  } catch (statusErr) {
+                    fail('publishConfirm', statusErr, { draftId });
+                  }
                   await sendSocialReviewMessage(slack, config.SLACK_CHANNEL_ID, {
                     draftId: draft.id,
                     blogTitle: draft.blog_title,
@@ -74,6 +102,16 @@ export function createSlackWebhookRouter(supabase, config) {
             .catch(async (error) => {
               fail('publishDraftToSanity', error);
               try {
+                const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+                await sendStatusMessage(
+                  slack,
+                  config.SLACK_CHANNEL_ID,
+                  `:x: Publish failed: ${error?.message || 'unknown error'}. Topic reset to review — try again.`
+                );
+              } catch (statusErr) {
+                fail('publishFailNotice', statusErr, { draftId });
+              }
+              try {
                 await setTopicStatusFromDraft(supabase, draftId, 'review');
               } catch (statusErr) {
                 fail('publishDraftToSanity:statusUpdate', statusErr);
@@ -84,6 +122,16 @@ export function createSlackWebhookRouter(supabase, config) {
             .from('content_drafts')
             .update({ social_approved: true })
             .eq('id', draftId);
+          try {
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendStatusMessage(
+              slack,
+              config.SLACK_CHANNEL_ID,
+              ':white_check_mark: Social approved — will post on the next orchestrator tick (every 15 min).'
+            );
+          } catch (slackErr) {
+            fail('approveSocialAck', slackErr, { draftId });
+          }
         } else if (actionId === 'reject_social') {
           await supabase
             .from('content_drafts')
