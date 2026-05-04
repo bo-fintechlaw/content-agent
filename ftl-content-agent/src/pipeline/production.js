@@ -66,10 +66,17 @@ export async function runDraftAndJudge(supabase, config, options = {}) {
             attempts.push({ pass, draftId, draft: draftResult, precheck, judge: null });
             continue;
           }
-          const judgeResult = await runJudging(supabase, config, { draftId });
+          const judgeResult = await runJudging(supabase, config, {
+            draftId,
+            preverifiedLinkContext: precheck.linkContext ?? null,
+          });
           attempts.push({ pass, draftId, draft: draftResult, precheck, judge: judgeResult });
           if (judgeResult.judged) {
             success('runDraftAndJudge', { runKind, draftId, judged: true, pass });
+            return { runKind, draft: draftResult, judge: judgeResult, attempts };
+          }
+          if (judgeResult.deferred) {
+            success('runDraftAndJudge', { runKind, draftId, deferred: true, pass });
             return { runKind, draft: draftResult, judge: judgeResult, attempts };
           }
           continue;
@@ -95,6 +102,10 @@ export async function runDraftAndJudge(supabase, config, options = {}) {
       attempts.push({ pass, draftId, draft: draftResult, precheck, judge: judgeResult });
       if (judgeResult.judged) {
         success('runDraftAndJudge', { runKind, draftId, judged: true, pass });
+        return { runKind, draft: draftResult, judge: judgeResult, attempts };
+      }
+      if (judgeResult.deferred) {
+        success('runDraftAndJudge', { runKind, draftId, deferred: true, pass });
         return { runKind, draft: draftResult, judge: judgeResult, attempts };
       }
     }
@@ -232,6 +243,13 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
     .eq('id', draftId);
   if (updateErr) throw new Error(updateErr.message);
 
+  if (!citationGate.blocked) {
+    // Propagate the citation context out so runJudging can skip the redundant pass.
+    success('runPreJudgeQualityChecks:compile', { draftId });
+    success('runPreJudgeQualityChecks', { draftId, blocked: false });
+    return { blocked: false, linkContext: citationGate.linkContext ?? null };
+  }
+
   if (citationGate.blocked) {
     const nextFlags = [
       ...(Array.isArray(draft.judge_flags) ? draft.judge_flags : []),
@@ -266,10 +284,6 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
       flags: citationGate.flags,
     };
   }
-
-  success('runPreJudgeQualityChecks:compile', { draftId });
-  success('runPreJudgeQualityChecks', { draftId, blocked: false });
-  return { blocked: false };
 }
 
 function normalizeBlogBody(blogBody) {
@@ -391,8 +405,14 @@ async function enforceCitationRequirements({
     });
   }
 
+  // Build the linkContext we'll thread to the judge so it can skip a redundant
+  // fetch + subagent pass on the same URLs (saves ~3K input tokens/min and ~17s).
+  const linkContext = subagent
+    ? { fetches, subagent }
+    : null;
+
   if (!enforce) {
-    return { blocked: false, blogBody, flags: [], warnings: [] };
+    return { blocked: false, blogBody, flags: [], warnings: [], linkContext };
   }
   // Hard blocks: source truly missing / unreachable / misrepresented
   const missing = [];
@@ -426,6 +446,7 @@ async function enforceCitationRequirements({
     blogBody,
     flags: missing.map((m) => `prejudge:${m}`),
     warnings: warnings.map((w) => `prejudge_warning:${w}`),
+    linkContext,
   };
 }
 

@@ -14,9 +14,13 @@ import { fail, start, success } from '../utils/logger.js';
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {Record<string, any>} config
- * @param {{ draftId?: string } | undefined} [options]
+ * @param {{ draftId?: string, preverifiedLinkContext?: { fetches: any[], subagent: any } | null } | undefined} [options]
  * @description When `options.draftId` is set, judges only that row if it is not yet judged.
  * Otherwise picks the oldest unjudged draft.
+ *
+ * If `options.preverifiedLinkContext` is provided (from prejudge), the judge skips
+ * its own citation fetch + subagent pass and reuses the prejudge result. This is
+ * the path the production cron uses to stay under the Anthropic input-token budget.
  */
 export async function runJudging(supabase, config, options = {}) {
   start('runJudging');
@@ -50,12 +54,29 @@ export async function runJudging(supabase, config, options = {}) {
 
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
 
-    const citedUrls = extractHttpUrlsFromDraft(draft);
-    const linkFetches = await fetchAllCitationPreviews(citedUrls);
-    const [subagent, claimVerification] = await Promise.all([
-      runCitationVerificationSubagent(client, config, { draft, fetches: linkFetches }),
+    const preverified = options.preverifiedLinkContext ?? null;
+    const reuseCitation = !!(preverified?.subagent && Array.isArray(preverified?.fetches));
+
+    let linkFetches;
+    let subagent;
+    if (reuseCitation) {
+      linkFetches = preverified.fetches;
+      subagent = preverified.subagent;
+    } else {
+      const citedUrls = extractHttpUrlsFromDraft(draft);
+      linkFetches = await fetchAllCitationPreviews(citedUrls);
+    }
+
+    // Always run claim verification — it does web search, not URL-fetch, so the
+    // prejudge stage hasn't done it. Run citation subagent only if we don't have
+    // a prejudge result to reuse.
+    const [subagentResult, claimVerification] = await Promise.all([
+      reuseCitation
+        ? Promise.resolve(subagent)
+        : runCitationVerificationSubagent(client, config, { draft, fetches: linkFetches }),
       runClaimVerificationSubagent(client, config, { draft }),
     ]);
+    subagent = subagentResult;
     const linkContext = { fetches: linkFetches, subagent, claimVerification };
 
     const contradictedClaims = (claimVerification?.assessments ?? []).filter(
@@ -72,18 +93,29 @@ export async function runJudging(supabase, config, options = {}) {
         temperature: 0.1,
       });
     } catch (anthropicErr) {
-      const fallbackFlag = 'anthropic_unavailable_fallback';
-      result = {
-        scores: {
-          accuracy: { score: 0, rationale: 'Anthropic unavailable' },
-          engagement: { score: 0, rationale: 'Anthropic unavailable' },
-          seo: { score: 0, rationale: 'Anthropic unavailable' },
-          voice: { score: 0, rationale: 'Anthropic unavailable' },
-          structure: { score: 0, rationale: 'Anthropic unavailable' },
-        },
-        revision_instructions: ['Anthropic was unavailable — re-judge when service is restored.'],
-        strengths: [],
-        flags: [fallbackFlag],
+      // Anthropic unavailable (rate limit, network, breaker open). Do NOT fabricate
+      // a 0-score REJECT — that silently kills good drafts. Leave the draft in a
+      // re-judgeable state (judge_pass null), keep topic status unchanged, and
+      // notify Slack so a human knows. Next judge tick will retry.
+      try {
+        const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+        await slack.chat.postMessage({
+          channel: config.SLACK_CHANNEL_ID,
+          text:
+            `⚠️ *Judge unavailable — draft left for retry*\n` +
+            `*Draft:* \`${draft.id}\` (${draft.blog_title || 'untitled'})\n` +
+            `*Reason:* ${anthropicErr?.message || 'anthropic_unavailable'}\n` +
+            `Will retry on next \`/api/judge-now\` or scheduled cron tick.`,
+        });
+      } catch (slackErr) {
+        fail('runJudging:fallbackSlack', slackErr, { draftId: draft.id });
+      }
+      success('runJudging', { draftId: draft.id, deferred: true, reason: 'anthropic_unavailable' });
+      return {
+        judged: false,
+        deferred: true,
+        draftId: draft.id,
+        reason: 'anthropic_unavailable',
       };
     }
 

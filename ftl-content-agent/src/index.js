@@ -18,6 +18,7 @@ import {
   sendMondaySearchAndRankReport,
 } from './integrations/slack.js';
 import { fail, start, success } from './utils/logger.js';
+import { withCronRun } from './utils/cron-runs.js';
 
 // Prefer project .env over inherited shell vars.
 dotenv.config({ override: true });
@@ -78,19 +79,22 @@ async function main() {
     async () => {
       start('cron:weeklyScanAndRank');
       try {
-        const scan = await runSourceScan(supabaseClient);
-        success('cron:weeklyScanAndRank:scan', scan);
-        const rank = await runTopicRanking(supabaseClient, config);
-        success('cron:weeklyScanAndRank:rank', rank);
-        try {
-          const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-          await sendMondaySearchAndRankReport(slack, config.SLACK_CHANNEL_ID, {
-            scan,
-            rank,
-          });
-        } catch (slackErr) {
-          fail('cron:weeklyScanAndRank:slack', slackErr);
-        }
+        await withCronRun(supabaseClient, 'cron:weeklyScanAndRank', async () => {
+          const scan = await runSourceScan(supabaseClient);
+          success('cron:weeklyScanAndRank:scan', scan);
+          const rank = await runTopicRanking(supabaseClient, config);
+          success('cron:weeklyScanAndRank:rank', rank);
+          try {
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendMondaySearchAndRankReport(slack, config.SLACK_CHANNEL_ID, {
+              scan,
+              rank,
+            });
+          } catch (slackErr) {
+            fail('cron:weeklyScanAndRank:slack', slackErr);
+          }
+          return { scan, rank };
+        });
       } catch (e) {
         fail('cron:weeklyScanAndRank', e);
       }
@@ -108,23 +112,33 @@ async function main() {
     async () => {
       start('cron:dailyContent');
       try {
-        const result = await runDraftAndJudge(supabaseClient, config, {
-          minRelevanceScore: config.DAILY_PUBLISH_MIN_RELEVANCE,
-          runKind: 'scheduled',
-        });
-        success('cron:dailyContent', result);
-        if (result.draft && !result.draft.drafted) {
-          try {
-            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-            await sendDailyNoDraftNotification(
-              slack,
-              config.SLACK_CHANNEL_ID,
-              result.draft
-            );
-          } catch (slackErr) {
-            fail('cron:dailyContent:slack', slackErr);
+        await withCronRun(supabaseClient, 'cron:dailyContent', async () => {
+          const result = await runDraftAndJudge(supabaseClient, config, {
+            minRelevanceScore: config.DAILY_PUBLISH_MIN_RELEVANCE,
+            runKind: 'scheduled',
+          });
+          success('cron:dailyContent', result);
+          if (result.draft && !result.draft.drafted) {
+            try {
+              const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+              await sendDailyNoDraftNotification(
+                slack,
+                config.SLACK_CHANNEL_ID,
+                result.draft
+              );
+            } catch (slackErr) {
+              fail('cron:dailyContent:slack', slackErr);
+            }
           }
-        }
+          return {
+            runKind: result.runKind,
+            drafted: result.draft?.drafted ?? false,
+            draftId: result.draft?.draftId ?? null,
+            judged: result.judge?.judged ?? false,
+            verdict: result.judge?.verdict ?? null,
+            deferred: result.judge?.deferred ?? false,
+          };
+        });
       } catch (e) {
         fail('cron:dailyContent', e);
       }
@@ -143,8 +157,11 @@ async function main() {
       orchestrationRunning = true;
       start('cron:orchestration');
       try {
-        await runOrchestration(supabaseClient, config);
-        success('cron:orchestration');
+        await withCronRun(supabaseClient, 'cron:orchestration', async () => {
+          const r = await runOrchestration(supabaseClient, config);
+          success('cron:orchestration');
+          return r;
+        });
       } catch (e) {
         fail('cron:orchestration', e);
       } finally {
@@ -160,8 +177,11 @@ async function main() {
     async () => {
       start('cron:weeklyReport');
       try {
-        await runWeeklyReport(supabaseClient, config);
-        success('cron:weeklyReport');
+        await withCronRun(supabaseClient, 'cron:weeklyReport', async () => {
+          const r = await runWeeklyReport(supabaseClient, config);
+          success('cron:weeklyReport');
+          return r;
+        });
       } catch (e) {
         fail('cron:weeklyReport', e);
       }

@@ -4,6 +4,38 @@ import { fail, start, success } from '../utils/logger.js';
 
 const breaker = new CircuitBreaker('anthropic');
 
+const RATE_LIMIT_RETRY_CAP_MS = 90_000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wrap a single Anthropic messages.create call with one 429-aware retry.
+ * Reads `retry-after` from the error if present (Anthropic returns it in seconds);
+ * caps the wait at 90s so a stuck cron doesn't block forever. Other error classes
+ * pass straight through to the circuit breaker.
+ */
+async function callMessagesWith429Retry(operation) {
+  try {
+    return await operation();
+  } catch (err) {
+    const status = err?.status ?? err?.response?.status;
+    if (status !== 429) throw err;
+    const retryAfterSec = Number(
+      err?.headers?.['retry-after'] ??
+        err?.response?.headers?.['retry-after'] ??
+        30
+    );
+    const waitMs = Math.min(
+      RATE_LIMIT_RETRY_CAP_MS,
+      Math.max(1_000, Math.round(retryAfterSec * 1_000))
+    );
+    console.warn(
+      `⚠️ anthropic 429 — retrying once after ${Math.round(waitMs / 1_000)}s`
+    );
+    await sleep(waitMs);
+    return await operation();
+  }
+}
+
 /**
  * @param {string} apiKey
  */
@@ -26,19 +58,20 @@ export function createAnthropicClient(apiKey) {
 export async function promptJson(client, args) {
   start('promptJson');
   const result = await breaker.execute(
-    async () => {
-      const resp = await client.messages.create({
-        model: args.model ?? 'claude-sonnet-4-6',
-        max_tokens: args.maxTokens ?? 1800,
-        temperature: args.temperature ?? 0.2,
-        system: args.system,
-        messages: [{ role: 'user', content: args.user }],
-      });
-      const text =
-        resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
-        '';
-      return parseJsonResponse(text);
-    },
+    async () =>
+      callMessagesWith429Retry(async () => {
+        const resp = await client.messages.create({
+          model: args.model ?? 'claude-sonnet-4-6',
+          max_tokens: args.maxTokens ?? 1800,
+          temperature: args.temperature ?? 0.2,
+          system: args.system,
+          messages: [{ role: 'user', content: args.user }],
+        });
+        const text =
+          resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
+          '';
+        return parseJsonResponse(text);
+      }),
     { error: 'anthropic_unavailable' }
   );
 
@@ -61,26 +94,27 @@ export async function promptJson(client, args) {
 export async function promptWithWebSearchJson(client, args) {
   start('promptWithWebSearchJson');
   const result = await breaker.execute(
-    async () => {
-      const resp = await client.messages.create({
-        model: args.model ?? 'claude-sonnet-4-6',
-        max_tokens: args.maxTokens ?? 4_000,
-        temperature: args.temperature ?? 0.1,
-        system: args.system,
-        tools: [
-          {
-            type: 'web_search_20250305',
-            name: 'web_search',
-            max_uses: args.maxSearches ?? 8,
-          },
-        ],
-        messages: [{ role: 'user', content: args.user }],
-      });
-      const text =
-        resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
-        '';
-      return parseJsonResponse(text);
-    },
+    async () =>
+      callMessagesWith429Retry(async () => {
+        const resp = await client.messages.create({
+          model: args.model ?? 'claude-sonnet-4-6',
+          max_tokens: args.maxTokens ?? 4_000,
+          temperature: args.temperature ?? 0.1,
+          system: args.system,
+          tools: [
+            {
+              type: 'web_search_20250305',
+              name: 'web_search',
+              max_uses: args.maxSearches ?? 8,
+            },
+          ],
+          messages: [{ role: 'user', content: args.user }],
+        });
+        const text =
+          resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
+          '';
+        return parseJsonResponse(text);
+      }),
     { error: 'anthropic_unavailable' }
   );
 

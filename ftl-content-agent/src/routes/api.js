@@ -48,6 +48,44 @@ export function createApiRouter(supabaseClient, config) {
     }
   });
 
+  // Cron run history. Lets you answer "did the 7am cron fire today?" without
+  // pulling Railway logs. Returns the most recent N runs grouped by cron name.
+  router.get('/cron-health', async (req, res) => {
+    start('GET /api/cron-health');
+    try {
+      const limit = Math.min(500, Math.max(1, Number.parseInt(req.query.limit, 10) || 100));
+      const { data, error } = await supabaseClient
+        .from('cron_runs')
+        .select('id, cron_name, status, started_at, finished_at, duration_ms, error_message, summary')
+        .order('started_at', { ascending: false })
+        .limit(limit);
+      if (error) throw new Error(error.message);
+
+      const grouped = {};
+      for (const row of data ?? []) {
+        const arr = grouped[row.cron_name] ?? (grouped[row.cron_name] = []);
+        arr.push(row);
+      }
+      const lastByName = {};
+      for (const [name, runs] of Object.entries(grouped)) {
+        const lastSuccess = runs.find((r) => r.status === 'success');
+        const lastFailure = runs.find((r) => r.status === 'failed');
+        lastByName[name] = {
+          totalReturned: runs.length,
+          lastRun: runs[0] ?? null,
+          lastSuccess: lastSuccess ?? null,
+          lastFailure: lastFailure ?? null,
+        };
+      }
+
+      success('GET /api/cron-health', { limit, names: Object.keys(grouped) });
+      res.status(200).json({ summary: lastByName, runs: data ?? [] });
+    } catch (error) {
+      fail('GET /api/cron-health', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/suggest-topic', async (req, res) => {
     start('POST /api/suggest-topic');
     try {
