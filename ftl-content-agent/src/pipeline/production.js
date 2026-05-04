@@ -371,11 +371,20 @@ async function enforceCitationRequirements({
     ? paywalled.some((v) => samePrimarySource(v.url, primary, v.finalUrl))
     : false;
 
-  const secondaryVerified = verified.find(
-    (v) => !samePrimarySource(v.url, primary, v.finalUrl)
-  );
+  // Self-citation filter: fintechlaw.ai is injected into every draft via
+  // ensureCtaInClosing, so it would otherwise be picked as the "Independent
+  // verification" secondary source. Our own homepage is not independent
+  // verification — exclude these domains from secondary candidates so the
+  // ag.ny.gov / nysenate.gov style citations the drafter intentionally placed
+  // get used instead.
+  const isIndependentSource = (v) =>
+    !samePrimarySource(v.url, primary, v.finalUrl) &&
+    !isSelfCitation(v.url) &&
+    !isSelfCitation(v.finalUrl);
+
+  const secondaryVerified = verified.find(isIndependentSource);
   const secondaryPaywalled = !secondaryVerified
-    ? paywalled.find((v) => !samePrimarySource(v.url, primary, v.finalUrl))
+    ? paywalled.find(isIndependentSource)
     : null;
   // For citation block + URL surfacing, prefer verified, fall back to paywalled.
   const secondary = secondaryVerified || secondaryPaywalled;
@@ -448,6 +457,23 @@ async function enforceCitationRequirements({
     warnings: warnings.map((w) => `prejudge_warning:${w}`),
     linkContext,
   };
+}
+
+// Domains we publish ourselves. Never count as independent verification of
+// content we wrote — even if the URL returns 200, citing our own page back to
+// ourselves is circular. Subdomains included.
+const SELF_CITATION_DOMAINS = ['fintechlaw.ai'];
+
+function isSelfCitation(url) {
+  if (!url) return false;
+  try {
+    const host = new URL(String(url)).hostname.toLowerCase();
+    return SELF_CITATION_DOMAINS.some(
+      (d) => host === d || host.endsWith(`.${d}`)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function sameUrlTarget(a, b) {
