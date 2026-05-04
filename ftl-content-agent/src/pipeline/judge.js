@@ -1,5 +1,9 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
-import { createSlackClient, sendReviewMessage } from '../integrations/slack.js';
+import {
+  createSlackClient,
+  sendDraftRejectedNotification,
+  sendReviewMessage,
+} from '../integrations/slack.js';
 import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from '../prompts/judge-system.js';
 import { extractHttpUrlsFromDraft, fetchAllCitationPreviews } from './citation-harvest.js';
 import { runCitationVerificationSubagent } from './citation-subagent.js';
@@ -216,9 +220,10 @@ export async function runJudging(supabase, config, options = {}) {
       .update({ status: nextTopicStatus, updated_at: new Date().toISOString() })
       .eq('id', draft.topic_id);
 
+    const baseUrl = String(config.APP_BASE_URL ?? '').trim().replace(/\/+$/, '');
+    const reviewUrl = baseUrl ? `${baseUrl}/api/drafts/${draft.id}/preview` : '';
+
     if (sendToSlack && nextTopicStatus !== 'rejected') {
-      const baseUrl = String(config.APP_BASE_URL ?? '').trim().replace(/\/+$/, '');
-      const reviewUrl = baseUrl ? `${baseUrl}/api/drafts/${draft.id}/preview` : '';
       const slack = createSlackClient(config.SLACK_BOT_TOKEN);
       await sendReviewMessage(slack, config.SLACK_CHANNEL_ID, {
         draftId: draft.id,
@@ -233,6 +238,26 @@ export async function runJudging(supabase, config, options = {}) {
         manualVerificationNotes,
         reviewUrl,
       });
+    } else if (verdict === 'REJECT') {
+      // Substantive REJECT (real verdict, not fallback). Notify the human so a
+      // legitimately bad draft is not silently abandoned. Best-effort — don't
+      // throw if Slack itself errors.
+      try {
+        const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+        await sendDraftRejectedNotification(slack, config.SLACK_CHANNEL_ID, {
+          draftId: draft.id,
+          topicId: draft.topic_id,
+          blogTitle: draft.blog_title,
+          composite,
+          scores: normalizedScores,
+          flags: [...(result.flags ?? []), ...contradictedFlag],
+          revisionNotes: allRevisionInstructions,
+          manualVerificationNotes,
+          reviewUrl,
+        });
+      } catch (slackErr) {
+        fail('runJudging:rejectedSlack', slackErr, { draftId: draft.id });
+      }
     }
 
     const isFallback = !!result?.flags?.includes('anthropic_unavailable_fallback');
