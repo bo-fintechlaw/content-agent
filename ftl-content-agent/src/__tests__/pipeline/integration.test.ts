@@ -177,7 +177,6 @@ jest.unstable_mockModule('../../integrations/anthropic.js', () => ({
 jest.unstable_mockModule('../../integrations/slack.js', () => ({
   createSlackClient: jest.fn(() => ({})),
   sendReviewMessage: jest.fn<any>(() => Promise.resolve({ ts: 'slack-ts-123' })),
-  sendDraftRejectedNotification: jest.fn<any>(() => Promise.resolve({ ts: 'slack-ts-456' })),
 }));
 
 jest.unstable_mockModule('../../integrations/sanity.js', () => ({

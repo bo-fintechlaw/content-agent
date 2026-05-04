@@ -84,7 +84,15 @@ If any assessment has verdict "contradicted", you MUST lower accuracy to 4 or be
 `
     : '';
 
+  const today = new Date().toISOString().slice(0, 10);
   return `Evaluate this draft for FinTech Law LLC's content pipeline.
+
+Today's date: ${today}. Use this as the temporal reference when evaluating year/date claims in the draft.
+
+CITATION POLICY YOU MUST APPLY:
+- A primary source returning HTTP 401/403/410/451 is **paywalled or bot-blocked, not broken**. Do NOT lower accuracy or list it in revision_instructions for being "inaccessible". The pipeline already surfaces a manual-verify warning for these.
+- A draft URL on https://fintechlaw.ai/blog/<slug> is the **future permalink of this post** — it 404s pre-publish by design. Ignore any HTTP_FETCHES result for fintechlaw.ai/blog/* URLs. Do NOT flag them as broken or list them in revision_instructions.
+- A "broken citation" worth flagging is a third-party source URL (gov, court, news, regulator) returning a true 404 with no paywall — that is a real drafter hallucination and accuracy must drop.
 ${linkBlock}${claimBlock}
 Blog title: ${draft.blog_title ?? '(missing)'}
 

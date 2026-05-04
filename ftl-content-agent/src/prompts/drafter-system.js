@@ -178,8 +178,16 @@ QUALITY GATES — SELF-CHECK BEFORE OUTPUT:
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
 export function buildDrafterUserPrompt({ topic, seoKeywords, revisionInstructions = [] }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const currentYear = today.slice(0, 4);
   return `Draft content from this topic:
 ${JSON.stringify(topic, null, 2)}
+
+TEMPORAL ANCHOR — READ FIRST:
+- Today's date is ${today}. We are in ${currentYear}.
+- Any "this week", "last week", "earlier this month", "this year" reference must be calculated from ${today} — NOT from your training-data baseline year.
+- If the topic source describes a recent enforcement action, settlement, rule release, or announcement, assume it occurred in ${currentYear} unless the source explicitly says otherwise. Do NOT default to a prior year.
+- Before writing any year, date, or "recently" phrasing, verify it against the topic's source URL and publication date. If you cannot confirm a year, omit the year rather than guessing.
 
 PRIMARY SOURCE REQUIREMENT:
 - The topic source URL is: ${String(topic?.source_url ?? '').trim() || '(missing)'}

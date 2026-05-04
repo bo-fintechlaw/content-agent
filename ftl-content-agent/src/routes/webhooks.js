@@ -38,6 +38,15 @@ export function createSlackWebhookRouter(supabase, config) {
         if (!draftId || !actionId) return res.status(200).json({ ok: true });
 
         if (actionId === 'approve_draft') {
+          // Human approval is the override for any judge verdict (REVISE/REJECT
+          // included). Flip judge_pass=true so the orchestrator's autopublish
+          // gate is satisfied; otherwise an approved-but-judge-failed draft
+          // would sit indefinitely. Autonomous mode still keys off the judge's
+          // own judge_pass=true on PASS — this just lets a human override.
+          await supabase
+            .from('content_drafts')
+            .update({ judge_pass: true })
+            .eq('id', draftId);
           await setTopicStatusFromDraft(supabase, draftId, 'approved');
           publishDraftToSanity(supabase, config, draftId)
             .then(async () => {

@@ -6,6 +6,36 @@ const PREVIEW_MAX_CHARS = 4_000;
 
 const URL_IN_TEXT_RE = /https?:\/\/[^\s\])"'<>\n]+/g;
 
+// Domains we publish ourselves. The drafter intentionally links to
+// fintechlaw.ai/contact (CTA) and to the future blog permalink
+// fintechlaw.ai/blog/<slug> in social posts. Neither is a citation:
+//   - The CTAs are not external evidence for any claim.
+//   - The future permalink 404s pre-publish — fetching it generates a
+//     false-positive "broken citation" flag from the subagent.
+// Strip them at extraction so they never reach the fetch step or the judge.
+const SELF_CITATION_HOSTS = new Set(['fintechlaw.ai', 'www.fintechlaw.ai']);
+
+function isSelfCitationUrl(url) {
+  try {
+    const host = new URL(String(url)).hostname.toLowerCase();
+    return SELF_CITATION_HOSTS.has(host);
+  } catch {
+    return false;
+  }
+}
+
+// Dedupe key: hostname + pathname (no query, no trailing slash). Catches the
+// drafter writing both a UTM-tagged URL and a clean URL of the same article.
+function urlDedupeKey(url) {
+  try {
+    const u = new URL(String(url));
+    const path = u.pathname.replace(/\/+$/, '') || '/';
+    return `${u.hostname.toLowerCase()}${path}`;
+  } catch {
+    return String(url);
+  }
+}
+
 /**
  * Strip trailing punctuation often captured with URLs in prose.
  * @param {string} s
@@ -52,7 +82,21 @@ export function extractHttpUrlsFromDraft(draft) {
   if (draft?.linkedin_post) walkForUrls(draft.linkedin_post, s);
   if (draft?.x_post) walkForUrls(draft.x_post, s);
   if (draft?.x_thread) walkForUrls(draft.x_thread, s);
-  return [...s].slice(0, MAX_URLS);
+
+  // Dedupe by hostname+path — collapses utm-tagged + clean variants of the
+  // same article. Prefer the URL without a query string when both forms appear.
+  const byPath = new Map();
+  for (const u of s) {
+    if (isSelfCitationUrl(u)) continue;
+    const key = urlDedupeKey(u);
+    const existing = byPath.get(key);
+    if (!existing) {
+      byPath.set(key, u);
+      continue;
+    }
+    if (existing.includes('?') && !u.includes('?')) byPath.set(key, u);
+  }
+  return [...byPath.values()].slice(0, MAX_URLS);
 }
 
 function extractTitleFromHtml(html) {
