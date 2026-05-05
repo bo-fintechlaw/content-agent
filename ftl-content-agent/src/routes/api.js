@@ -7,6 +7,7 @@ import { runSourceScan } from '../pipeline/scanner.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { runSocialPosting } from '../pipeline/social-poster.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
+import { reviseBlogContent } from '../pipeline/blog-reviser.js';
 import { runOrchestration } from '../pipeline/orchestrator.js';
 import { runWeeklyReport } from '../pipeline/weekly-report.js';
 import { createSlackClient, sendSocialReviewMessage } from '../integrations/slack.js';
@@ -268,6 +269,30 @@ export function createApiRouter(supabaseClient, config) {
       res.json({ ok: true, ...result });
     } catch (error) {
       fail('GET /api/social-now', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // Trigger a targeted blog revision outside the Slack modal flow. Mirrors the
+  // Slack "Request Changes" path: reviseBlogContent edits only the sections the
+  // feedback addresses, then runJudging re-evaluates and sends a fresh review
+  // message to Slack. Useful for replaying corrections after a deploy or for
+  // scripted/automated revisions.
+  router.post('/revise-blog', async (req, res) => {
+    start('POST /api/revise-blog');
+    try {
+      const { draftId, feedback } = req.body ?? {};
+      if (!draftId || !feedback) {
+        return res.status(400).json({ ok: false, error: 'Missing draftId or feedback' });
+      }
+
+      const revised = await reviseBlogContent(supabaseClient, config, draftId, feedback);
+      const judged = await runJudging(supabaseClient, config, { draftId });
+
+      success('POST /api/revise-blog', { draftId, judged: judged?.judged });
+      res.json({ ok: true, draftId, revised, judge: judged });
+    } catch (error) {
+      fail('POST /api/revise-blog', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });

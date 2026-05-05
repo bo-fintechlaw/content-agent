@@ -110,8 +110,11 @@ export async function runDraftAndJudge(supabase, config, options = {}) {
       }
     }
 
+    // Loop exhausted while still revising. Surface the latest draft to Slack
+    // regardless of composite — a low-scoring draft that ran out of revision
+    // budget still needs a human decision; silently dying is worse than asking.
     const last = attempts[attempts.length - 1] || null;
-    if (last?.judge?.revised && Number(last?.judge?.composite ?? 0) >= 8.0) {
+    if (last?.judge?.revised && last.draftId) {
       try {
         await sendRevisedDraftToSlackReview(supabase, config, last.draftId);
         success('runDraftAndJudge:autoSlackFallback', {

@@ -125,10 +125,23 @@ export async function runJudging(supabase, config, options = {}) {
     const composite = computeJudgeComposite(normalizedScores);
     let verdict = deriveJudgeVerdict({ composite, scores: normalizedScores });
 
-    // Hard override: any contradicted factual claim forces at least REVISE.
-    // The drafter gets one shot to fix it; if it's already used its revision,
-    // we keep the LLM-derived verdict but surface the contradiction to Slack.
-    if (contradictedClaims.length && verdict === 'PASS') {
+    // Revision budget. Contradiction-driven REVISEs get 2 passes — the first
+    // rewrite often surfaces new issues that a second pass closes. Other
+    // REVISEs get 1.
+    const revisionsUsed = draft.revision_count ?? 0;
+    const revisionCap = contradictedClaims.length ? 2 : 1;
+
+    // Hard override: any contradicted factual claim forces at least REVISE
+    // while revision budget remains, even if the LLM-derived verdict is REJECT.
+    // The claim verifier hands the drafter concrete corrections (URL + rationale
+    // per claim), so a low-accuracy draft is worth retrying as a rewrite. Once
+    // the budget is exhausted, fall through to Slack with contradictions
+    // surfaced as advisory notes.
+    if (
+      contradictedClaims.length &&
+      verdict !== 'REVISE' &&
+      revisionsUsed < revisionCap
+    ) {
       verdict = 'REVISE';
     }
 
@@ -169,12 +182,13 @@ export async function runJudging(supabase, config, options = {}) {
 
     const contradictedFlag = contradictedClaims.length ? ['factually_contradicted'] : [];
 
-    // REVISE: send back to drafter if under revision limit (max 1 revision)
-    if (isRevise && (draft.revision_count ?? 0) < 1) {
+    // REVISE: send back to drafter if revision budget remains. Contradiction
+    // drafts get 2 passes, others get 1.
+    if (isRevise && revisionsUsed < revisionCap) {
       await supabase
         .from('content_drafts')
         .update({
-          revision_count: (draft.revision_count ?? 0) + 1,
+          revision_count: revisionsUsed + 1,
           judge_scores: result.scores,
           judge_pass: false,
           judge_flags: [

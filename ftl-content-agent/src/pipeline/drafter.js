@@ -90,11 +90,13 @@ export async function runDrafting(supabase, config, options = {}) {
     }
 
     // If revising, fetch previous draft's feedback to pass as revision instructions
+    // and carry forward its revision_count so the judge's per-topic cap is real.
     let revisionInstructions = [];
+    let inheritedRevisionCount = 0;
     if (topic.status === 'revision') {
       const { data: prevDraft } = await supabase
         .from('content_drafts')
-        .select('judge_flags')
+        .select('judge_flags, revision_count')
         .eq('topic_id', topic.id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -106,6 +108,10 @@ export async function runDrafting(supabase, config, options = {}) {
         if (!revisionInstructions.length) {
           revisionInstructions = prevDraft.judge_flags;
         }
+      }
+      const prevCount = Number(prevDraft?.revision_count ?? 0);
+      if (Number.isFinite(prevCount) && prevCount > 0) {
+        inheritedRevisionCount = prevCount;
       }
     }
 
@@ -147,6 +153,7 @@ export async function runDrafting(supabase, config, options = {}) {
         x_post: draft.x_post,
         x_thread: draft.x_thread ?? [],
         image_prompt: draft.image_prompt,
+        revision_count: inheritedRevisionCount,
       })
       .select('id, topic_id, blog_title')
       .single();
