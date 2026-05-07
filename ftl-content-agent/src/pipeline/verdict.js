@@ -17,10 +17,52 @@ export const RANKER_WEIGHTS = Object.freeze({
 });
 
 /**
+ * Hosts that count as primary regulator / government sources. A topic whose
+ * source_url resolves to one of these gets a +PRIMARY_REGULATOR_BOOST bonus
+ * on the final ranker score, so a regulator press release outranks a news
+ * rehash even when the news copy has a better hook. Rationale: a primary
+ * source is structurally higher-value for legal analysis.
+ *
+ * Match is on hostname suffix (so `www.sec.gov` and `oig.sec.gov` both match).
+ */
+export const PRIMARY_REGULATOR_HOSTS = Object.freeze([
+  'sec.gov',
+  'cftc.gov',
+  'occ.gov',
+  'fdic.gov',
+  'consumerfinance.gov',     // CFPB
+  'federalreserve.gov',
+  'fincen.gov',
+  'treasury.gov',
+  'justice.gov',             // DOJ
+  'dfs.ny.gov',
+  'finra.org',
+]);
+
+export const PRIMARY_REGULATOR_BOOST = 1.0;
+
+/** @param {string|null|undefined} url */
+export function isPrimaryRegulatorUrl(url) {
+  if (!url) return false;
+  let host;
+  try {
+    host = new URL(String(url)).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return PRIMARY_REGULATOR_HOSTS.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`)
+  );
+}
+
+/**
  * @param {Record<string, number>} scores
+ * @param {{ sourceUrl?: string|null }} [context] — optional source URL for the
+ *   primary-regulator boost. Pass when computing a topic's relevance_score so
+ *   regulator press releases outrank story-shaped news copy on the same topic.
  * @returns {number} weighted score, clamped 0-10, rounded to 1 decimal
  */
-export function computeRankerWeightedScore(scores) {
+export function computeRankerWeightedScore(scores, context = {}) {
   const s = scores ?? {};
   let total = 0;
   for (const [key, weight] of Object.entries(RANKER_WEIGHTS)) {
@@ -29,6 +71,9 @@ export function computeRankerWeightedScore(scores) {
       throw new Error(`ranker score "${key}" is not numeric (got ${s[key]})`);
     }
     total += v * weight;
+  }
+  if (isPrimaryRegulatorUrl(context.sourceUrl)) {
+    total += PRIMARY_REGULATOR_BOOST;
   }
   const clamped = Math.max(0, Math.min(10, total));
   return Number(clamped.toFixed(1));

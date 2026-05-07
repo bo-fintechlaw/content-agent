@@ -43,6 +43,50 @@ export const RSS_FEEDS = [
     category: 'regulatory',
     sourceName: 'CFPB Newsroom',
   },
+  {
+    url: 'https://www.cftc.gov/RSS/RSSGP/rssgp.xml',
+    category: 'regulatory',
+    sourceName: 'CFTC Press Releases',
+  },
+  {
+    url: 'https://www.cftc.gov/RSS/RSSENF/rssenf.xml',
+    category: 'regulatory',
+    sourceName: 'CFTC Enforcement',
+  },
+  {
+    url: 'https://www.cftc.gov/RSS/RSSST/rssst.xml',
+    category: 'regulatory',
+    sourceName: 'CFTC Speeches & Testimony',
+  },
+  {
+    url: 'https://www.federalreserve.gov/feeds/press_all.xml',
+    category: 'regulatory',
+    sourceName: 'Federal Reserve Press',
+  },
+  {
+    url: 'https://www.federalreserve.gov/feeds/press_enforcement.xml',
+    category: 'regulatory',
+    sourceName: 'Federal Reserve Enforcement',
+  },
+  {
+    url: 'https://public.govdelivery.com/topics/USFDIC_15/feed.rss',
+    category: 'regulatory',
+    sourceName: 'FDIC News',
+  },
+  {
+    url: 'https://public.govdelivery.com/topics/USTREAS_88/feed.rss',
+    category: 'regulatory',
+    sourceName: 'US Treasury News',
+  },
+  {
+    url: 'https://www.justice.gov/news/rss',
+    category: 'regulatory',
+    sourceName: 'DOJ News',
+  },
+  // FinCEN and FinRA do not publish parseable RSS. FinCEN is email-only via
+  // GovDelivery (https://public.govdelivery.com/accounts/USFINCEN/subscriber/new);
+  // FinRA's news pages render JS-only with no <link rel="alternate"> feed.
+  // Re-add if either ships an RSS endpoint.
   // CFTC RSS feeds (rssenf, rssgp, rssst) all return HTTP 403 even with a
   // browser User-Agent — actively WAF-blocked. Re-add when we have a way
   // around the block (proxy, allowlisted IP, etc.).

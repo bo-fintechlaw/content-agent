@@ -42,7 +42,7 @@ export async function runTopicRanking(supabase, config) {
   try {
     const { data: topics, error } = await supabase
       .from('content_topics')
-      .select('id,title,summary,category,suggested_by,created_at,status')
+      .select('id,title,summary,source_url,category,suggested_by,created_at,status')
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(25);
@@ -88,7 +88,11 @@ export async function runTopicRanking(supabase, config) {
 
         // Composite is computed in code (single source of truth in verdict.js).
         // Any weighted_score the LLM happens to return is ignored.
-        const weighted = computeRankerWeightedScore(result.scores);
+        // Pass sourceUrl so a regulator press release gets the +1.0 primary-
+        // source boost — see PRIMARY_REGULATOR_HOSTS in verdict.js.
+        const weighted = computeRankerWeightedScore(result.scores, {
+          sourceUrl: topic.source_url,
+        });
         autoScored.push({
           topicId: topic.id,
           title: String(topic.title ?? 'Untitled').slice(0, 200),

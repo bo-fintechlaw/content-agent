@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createSanityClient, createAndPublishBlogFromDraft } from '../integrations/sanity.js';
 import { CircuitBreaker } from '../utils/circuit-breaker.js';
+import { recordPublishedPost } from './prior-posts.js';
 import { fail, start, success } from '../utils/logger.js';
 
 const breaker = new CircuitBreaker('publisher');
@@ -61,6 +62,29 @@ export async function publishDraftToSanity(supabase, config, draftId, options = 
       .update({ status: 'published', updated_at: nowIso })
       .eq('id', draft.topic_id);
     if (updTopicErr) throw new Error(updTopicErr.message);
+  }
+
+  // Record into published_posts_index so future drafts can cross-reference
+  // this one. Pull source_name + category from the topic for the index row.
+  // Best-effort — recordPublishedPost swallows its own errors.
+  if (published) {
+    try {
+      const { data: topicRow } = await supabase
+        .from('content_topics')
+        .select('source_name, category')
+        .eq('id', draft.topic_id)
+        .maybeSingle();
+      await recordPublishedPost(supabase, {
+        draft,
+        topic: topicRow ?? {},
+        publishedAt: nowIso,
+        // Intentionally NOT passing config.APP_BASE_URL — that resolves to
+        // the Railway API host, not the public blog. recordPublishedPost
+        // defaults to fintechlaw.ai which is where the posts actually live.
+      });
+    } catch (indexErr) {
+      fail('publishDraftToSanity:recordIndex', indexErr, { draftId });
+    }
   }
 
   // Trigger Netlify rebuild so the new post appears on the live site

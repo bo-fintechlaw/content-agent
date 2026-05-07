@@ -4,7 +4,9 @@ const {
   RANKER_WEIGHTS,
   JUDGE_WEIGHTS,
   JUDGE_VERDICT_THRESHOLDS,
+  PRIMARY_REGULATOR_BOOST,
   computeRankerWeightedScore,
+  isPrimaryRegulatorUrl,
   normalizeJudgeScores,
   computeJudgeComposite,
   deriveJudgeVerdict,
@@ -84,6 +86,73 @@ describe('computeRankerWeightedScore', () => {
         engagement_potential: 'high' as any,
       })
     ).toThrow('engagement_potential');
+  });
+
+  it('applies primary-regulator boost when sourceUrl is on the allow-list', () => {
+    const baseScores = {
+      practice_relevance: 7,
+      timeliness: 7,
+      seo_fit: 7,
+      content_gap: 7,
+      engagement_potential: 7,
+    };
+    const baseline = computeRankerWeightedScore(baseScores);
+    const boosted = computeRankerWeightedScore(baseScores, {
+      sourceUrl: 'https://www.sec.gov/news/press-release/2026-1',
+    });
+    expect(boosted - baseline).toBeCloseTo(PRIMARY_REGULATOR_BOOST, 5);
+  });
+
+  it('does not boost non-regulator hosts', () => {
+    const scores = {
+      practice_relevance: 7,
+      timeliness: 7,
+      seo_fit: 7,
+      content_gap: 7,
+      engagement_potential: 7,
+    };
+    expect(
+      computeRankerWeightedScore(scores, {
+        sourceUrl: 'https://www.pymnts.com/news/foo',
+      })
+    ).toBe(computeRankerWeightedScore(scores));
+  });
+
+  it('clamps boost-bumped score at 10', () => {
+    const score = computeRankerWeightedScore(
+      {
+        practice_relevance: 10,
+        timeliness: 10,
+        seo_fit: 10,
+        content_gap: 10,
+        engagement_potential: 10,
+      },
+      { sourceUrl: 'https://www.cftc.gov/PressRoom/PressReleases/9999-26' }
+    );
+    expect(score).toBe(10);
+  });
+});
+
+describe('isPrimaryRegulatorUrl', () => {
+  it('matches exact regulator hosts', () => {
+    expect(isPrimaryRegulatorUrl('https://sec.gov/foo')).toBe(true);
+    expect(isPrimaryRegulatorUrl('https://www.sec.gov/foo')).toBe(true);
+    expect(isPrimaryRegulatorUrl('https://oig.sec.gov/report/1')).toBe(true);
+  });
+
+  it('returns false for unrelated hosts', () => {
+    expect(isPrimaryRegulatorUrl('https://www.pymnts.com/x')).toBe(false);
+    expect(isPrimaryRegulatorUrl('https://www.coindesk.com/x')).toBe(false);
+  });
+
+  it('returns false for malformed input', () => {
+    expect(isPrimaryRegulatorUrl(null)).toBe(false);
+    expect(isPrimaryRegulatorUrl('')).toBe(false);
+    expect(isPrimaryRegulatorUrl('not a url')).toBe(false);
+  });
+
+  it('does not match a similarly-named non-regulator host', () => {
+    expect(isPrimaryRegulatorUrl('https://sec.gov.fake.com/x')).toBe(false);
   });
 });
 

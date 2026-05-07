@@ -1,6 +1,8 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
 import { DEFAULT_SEO_KEYWORDS } from '../config/seo-keywords.js';
 import { DRAFTER_SYSTEM_PROMPT, buildDrafterUserPrompt } from '../prompts/drafter-system.js';
+import { applyDiversityPenalty, fetchRecentlyPublished } from './diversity.js';
+import { findRelatedPriorPosts } from './prior-posts.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -57,14 +59,35 @@ export async function runDrafting(supabase, config, options = {}) {
         .maybeSingle();
       if (revErr) throw new Error(revErr.message);
 
-      const { data: rankedTopic, error: rankErr } = await supabase
-        .from('content_topics')
-        .select('id,title,summary,source_url,category,relevance_score,status')
-        .eq('status', 'ranked')
-        .order('relevance_score', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (rankErr) throw new Error(rankErr.message);
+      // Pull a candidate set (not just the top scorer) so the diversity guard
+      // can downrank PYMNTS/crypto runs and a different-source candidate at
+      // slightly lower raw score wins. See diversity.js + Editorial
+      // Intelligence proposal §2.1.
+      let rankedTopic = null;
+      if (!revisionTopic) {
+        const { data: candidates, error: rankErr } = await supabase
+          .from('content_topics')
+          .select(
+            'id,title,summary,source_url,source_name,category,relevance_score,status'
+          )
+          .eq('status', 'ranked')
+          .order('relevance_score', { ascending: false })
+          .limit(10);
+        if (rankErr) throw new Error(rankErr.message);
+        if (candidates?.length) {
+          const recent = await fetchRecentlyPublished(supabase);
+          const adjusted = applyDiversityPenalty(candidates, recent);
+          rankedTopic = adjusted[0]?.topic ?? null;
+          if (rankedTopic && adjusted[0].penalty > 0) {
+            success('runDrafting:diversity', {
+              picked: rankedTopic.id,
+              rawScore: adjusted[0].rawScore,
+              adjustedScore: adjusted[0].adjustedScore,
+              reasons: adjusted[0].reasons,
+            });
+          }
+        }
+      }
 
       topic = revisionTopic || rankedTopic;
     }
@@ -115,13 +138,32 @@ export async function runDrafting(supabase, config, options = {}) {
       }
     }
 
+    // Look up topically-related FTL posts so the drafter can cross-reference
+    // its own corpus. Best-effort: empty list on any error, no blocking.
+    const relatedPriorPosts = await findRelatedPriorPosts(supabase, {
+      topic,
+      limit: 3,
+    });
+    if (relatedPriorPosts.length) {
+      success('runDrafting:priorPosts', {
+        topicId: topic.id,
+        relatedCount: relatedPriorPosts.length,
+        urls: relatedPriorPosts.map((p) => p.published_url),
+      });
+    }
+
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
     let draft;
     try {
       draft = await promptJson(client, {
         model: config.ANTHROPIC_MODEL,
         system: DRAFTER_SYSTEM_PROMPT,
-        user: buildDrafterUserPrompt({ topic, seoKeywords: DEFAULT_SEO_KEYWORDS, revisionInstructions }),
+        user: buildDrafterUserPrompt({
+          topic,
+          seoKeywords: DEFAULT_SEO_KEYWORDS,
+          revisionInstructions,
+          relatedPriorPosts,
+        }),
         maxTokens: 8000,
         temperature: 0.3,
       });

@@ -177,9 +177,32 @@ QUALITY GATES — SELF-CHECK BEFORE OUTPUT:
 
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
-export function buildDrafterUserPrompt({ topic, seoKeywords, revisionInstructions = [] }) {
+export function buildDrafterUserPrompt({
+  topic,
+  seoKeywords,
+  revisionInstructions = [],
+  relatedPriorPosts = [],
+}) {
   const today = new Date().toISOString().slice(0, 10);
   const currentYear = today.slice(0, 4);
+  const relatedBlock = Array.isArray(relatedPriorPosts) && relatedPriorPosts.length
+    ? `
+RELATED PRIOR FTL POSTS (cross-reference 1-2 inline if topically natural — never gratuitously):
+${relatedPriorPosts
+  .slice(0, 3)
+  .map(
+    (p, i) =>
+      `${i + 1}. "${p.blog_title}" (${p.published_at?.slice(0, 10) ?? 'undated'}) — ${p.published_url}\n   Snippet: ${(p.first_paragraph ?? '').slice(0, 200)}`
+  )
+  .join('\n')}
+
+Cross-reference rules:
+- Use inline Markdown links: [readable phrase](https://fintechlaw.ai/blog/<slug>) — never paste a bare URL.
+- Reference a prior post ONLY when the new post genuinely builds on, contrasts with, or updates the prior coverage. Do NOT add a link as filler.
+- Maximum 2 cross-references per post. Zero is fine if no prior post is genuinely relevant.
+- A natural reference reads like: "We examined this risk in [our prior analysis of the OCC's 2025 partner-bank guidance](...)" — connecting the two ideas. Avoid phrases like "as I wrote previously" without a substantive connection.
+`
+    : '';
   return `Draft content from this topic:
 ${JSON.stringify(topic, null, 2)}
 
@@ -197,6 +220,7 @@ PRIMARY SOURCE REQUIREMENT:
 Target SEO keywords (weave naturally into content, especially headers and first paragraphs):
 ${seoKeywords.join(', ')}
 
+${relatedBlock}
 ${revisionInstructions.length ? `REVISION REQUIRED — address these issues from the previous draft:\n- ${revisionInstructions.join('\n- ')}\n\nRevise the draft to address each instruction specifically. Do not rewrite sections that scored well. Focus your changes on the areas identified above.` : ''}
 
 Return JSON with this exact structure:

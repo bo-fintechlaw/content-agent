@@ -3,3 +3,6 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Supabase CLI link/auth scratch state. User-specific; nothing here is committable.
+supabase/

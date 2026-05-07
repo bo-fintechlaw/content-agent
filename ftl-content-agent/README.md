@@ -1,63 +1,51 @@
 # FinTech Law Content Agent
 
-Autonomous content pipeline (plain Node.js Express). **Source of truth:** [`FTL_Content_Agent_Architecture_Spec_v1_0.md`](./FTL_Content_Agent_Architecture_Spec_v1_0.md).
+Autonomous content pipeline for FinTech Law LLC. Scans legal/fintech RSS feeds, ranks topics, drafts and judges blog content with Claude, routes through Slack for approval, publishes to Sanity, posts to LinkedIn + X.
 
-## Phase 1 — Setup
+**Source of truth:** [`CLAUDE.md`](../CLAUDE.md) — architecture, status flow, env vars, debugging.
 
-1. Copy `.env.example` to `.env` and set every variable (fail-fast validation on startup).
-2. Apply SQL migrations in order under `src/db/migrations/` (`001` → `004`) in Supabase.
-3. Install and run:
+## Planning docs
+
+- [`FTL_Prompt_Architecture_Proposal_v1.md`](./FTL_Prompt_Architecture_Proposal_v1.md) — phased prompt-engineering improvements (drafter split, voice critic, prompt caching, extended thinking).
+- [`FTL_Pipeline_Roadmap_v1.md`](./FTL_Pipeline_Roadmap_v1.md) — cadence, Slack `/suggest` command, biweekly newsletter module.
+- [`FTL_Editorial_Intelligence_v1.md`](./FTL_Editorial_Intelligence_v1.md) — source diversity, primary-regulator bias, prior-posts cross-reference.
+
+## Quick start
 
 ```bash
+cp .env.example .env       # fill every variable; startup validation is fail-fast
 npm install
-npm start
+npm start                  # listens on PORT (default 3001)
 ```
 
-## Verification
+Apply SQL migrations under `src/db/migrations/` in order, in Supabase, before first run.
 
-| Check | Expected |
-|--------|----------|
-| `npm install` | Completes without errors |
-| `npm start` | Exits with a clear missing-variable message if `.env` is incomplete; otherwise listens on `PORT` |
-| `GET /health` | `{ "status": "ok", "timestamp": "<ISO8601>" }` |
-| `GET /api/health` | Same `status` + `timestamp`, plus `uptimeSeconds` and `database` (503 if Supabase unreachable or migrations missing) |
-| `POST /api/suggest-topic` | `501` stub |
-| `GET /api/topics` | JSON list from `content_topics` (max 100) |
-| `GET /api/scan-now` | Runs RSS scanner; returns `{ ok, inserted, skipped, errors, feedsProcessed }` |
-| `GET /api/drafts` | `501` stub until Phase 4+ |
+## Manual triggers (server running)
 
-## Phase 2 — Source scanner
+| Endpoint | What it does |
+|---|---|
+| `GET /api/scan-now` | Run RSS scanner |
+| `GET /api/rank-now` | Score pending topics |
+| `GET /api/draft-now` | Draft the top ranked topic |
+| `GET /api/judge-now?draftId=…` | Judge a specific draft (or oldest unjudged if omitted) |
+| `GET /api/start-production?topicId=…` | On-demand draft + judge for a single topic |
+| `GET /api/orchestrate-now` | Run publish + social cycle |
+| `GET /api/health` | Server + DB health |
 
-- **Feeds:** `src/config/sources.js` (`RSS_FEEDS`) — Artificial Lawyer, CoinDesk, SEC press releases by default.
-- **Pipeline:** `src/pipeline/scanner.js` — `runSourceScan(supabase)` fetches each feed behind a **circuit breaker**, dedupes by `source_url`, inserts `status: 'pending'` rows.
-- **Cron:** Daily **6:00 AM America/New_York** (`index.js`).
-- **Manual:** `GET http://localhost:3001/api/scan-now` while the server is running.
-- **Verify:** `GET /api/scan-now` then `GET /api/topics` or Supabase `content_topics`.
+## LinkedIn OAuth (one-time, to obtain `LINKEDIN_ACCESS_TOKEN`)
 
-## Patterns
-
-- **Logger:** `start` / `success` / `fail` from `src/utils/logger.js` (Proof of Life).
-- **Circuit breaker:** `src/utils/circuit-breaker.js` — used per RSS feed in the scanner.
-- **One Change Rule:** validate Phase 2 before Phase 3 (ranker).
-
-## Phase 1 file set
-
-`package.json`, `.env.example`, `.gitignore`, `src/config/env.js`, `src/utils/logger.js`, `src/utils/circuit-breaker.js`, `src/db/supabase.js`, `src/db/migrations/*.sql`, `src/index.js`, `src/routes/api.js`.
-
-**Phase 2:** `src/config/sources.js`, `src/pipeline/scanner.js` — `node-cron` in `index.js` for daily scan.
-
-## LinkedIn OAuth (get `LINKEDIN_ACCESS_TOKEN`)
-
-1. In the [LinkedIn Developer Portal](https://www.linkedin.com/developers/), add an **Authorized redirect URL** that matches **`LINKEDIN_REDIRECT_URI`** in `.env` (scheme, host, port, and path must match **exactly** — `http` vs `https` matters). For local dev, `http://localhost:3001/callback/linkedin` is typical; `https://localhost` often fails unless you terminate TLS locally.
-2. Start the app (`npm start`). Open **`http://localhost:3001/oauth/linkedin/start`** in your browser — it redirects to LinkedIn using your real **Client ID** and **redirect URI** from `.env` (no manual URL, no `YOUR_CLIENT_ID` placeholder). After you approve, LinkedIn sends you to `/callback/linkedin` with a `code`.
-3. Exchange the code (reads `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_REDIRECT_URI` from `.env`):
+1. In the [LinkedIn Developer Portal](https://www.linkedin.com/developers/), add the **Authorized redirect URL** matching `LINKEDIN_REDIRECT_URI` in `.env` (scheme, host, port, path must match exactly).
+2. Start the app, open `http://localhost:3001/oauth/linkedin/start`, approve. LinkedIn redirects to `/callback/linkedin?code=…`.
+3. Exchange the code:
 
 ```bash
 npm run linkedin:exchange -- "PASTE_AUTHORIZATION_CODE_HERE"
 ```
 
-**Optional `curl.exe` (PowerShell, one line)** — set `CODE` and fill client fields; `redirect_uri` must match step 1:
+## Tests
 
-```powershell
-curl.exe -X POST "https://www.linkedin.com/oauth/v2/accessToken" -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=authorization_code" -d "code=CODE" -d "client_id=YOUR_CLIENT_ID" -d "client_secret=YOUR_CLIENT_SECRET" -d "redirect_uri=http://localhost:3001/callback/linkedin"
+```bash
+npm test                   # Jest with --experimental-vm-modules
 ```
+
+Suites cover Zod schemas (ranker/drafter/judge outputs), pipeline integration (happy path + revision loop + manual bypass), Markdown→Portable Text, circuit breaker, and TTL cache.
