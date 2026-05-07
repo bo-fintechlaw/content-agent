@@ -36,6 +36,9 @@ const REQUIRED_NON_EMPTY = [
 /** May be unset until you finish OAuth / later phases — default to empty string in config. */
 const OPTIONAL_STRING = [
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_SUBAGENT_MODEL',
+  'ANTHROPIC_TPM_LIMIT',
+  'ANTHROPIC_SUBAGENT_TPM_LIMIT',
   'LINKEDIN_ACCESS_TOKEN',
   'LINKEDIN_PERSON_URN',
   'LINKEDIN_REDIRECT_URI',
@@ -113,9 +116,25 @@ export function validateEnv() {
   const notionMcpUrl =
     optional.NOTION_MCP_URL?.trim() || 'http://127.0.0.1:3100/mcp';
 
+  // Subagent (citation + claim verification) defaults to Haiku so it draws
+  // from a separate per-model rate-limit bucket from the main drafter/judge
+  // running on Sonnet. Override with ANTHROPIC_SUBAGENT_MODEL if needed.
+  const tpmLimitRaw = (optional.ANTHROPIC_TPM_LIMIT ?? '').trim();
+  const tpmLimit = Number.parseInt(tpmLimitRaw, 10);
+  const subagentTpmLimitRaw = (optional.ANTHROPIC_SUBAGENT_TPM_LIMIT ?? '').trim();
+  const subagentTpmLimit = Number.parseInt(subagentTpmLimitRaw, 10);
+
   const config = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL: optional.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+    ANTHROPIC_SUBAGENT_MODEL:
+      optional.ANTHROPIC_SUBAGENT_MODEL || 'claude-haiku-4-5-20251001',
+    // Tier-1 input-token-per-minute caps (Sonnet 30k, Haiku 50k as of 2026-Q2).
+    // We hold below the hard ceiling so the in-process budget guard sleeps
+    // before Anthropic 429s us. Override per env if the account tier changes.
+    ANTHROPIC_TPM_LIMIT: Number.isFinite(tpmLimit) && tpmLimit > 0 ? tpmLimit : 25_000,
+    ANTHROPIC_SUBAGENT_TPM_LIMIT:
+      Number.isFinite(subagentTpmLimit) && subagentTpmLimit > 0 ? subagentTpmLimit : 40_000,
     SANITY_PROJECT_ID: process.env.SANITY_PROJECT_ID,
     SANITY_DATASET: process.env.SANITY_DATASET,
     SANITY_API_TOKEN: process.env.SANITY_API_TOKEN,

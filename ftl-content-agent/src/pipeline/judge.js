@@ -40,16 +40,25 @@ export async function runJudging(supabase, config, options = {}) {
       }
       draft = d;
     } else {
+      // Pull a small candidate set so we can skip drafts that have already
+      // hit the defer cap in JS. Postgres can't easily count prefixed
+      // entries inside a JSONB array, and a max-deferred draft would
+      // otherwise loop forever as the oldest unjudged row.
+      const MAX_DEFERS = 4;
       const { data, error } = await supabase
         .from('content_drafts')
         .select('*')
         .is('judge_pass', null)
         .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
       if (error) throw new Error(error.message);
-      if (!data) return { judged: false, reason: 'no_unjudged_drafts' };
-      draft = data;
+      const candidate = (data ?? []).find((d) => {
+        const flags = Array.isArray(d.judge_flags) ? d.judge_flags : [];
+        const defers = flags.filter((f) => typeof f === 'string' && f.startsWith('defer:'));
+        return defers.length < MAX_DEFERS;
+      });
+      if (!candidate) return { judged: false, reason: 'no_unjudged_drafts' };
+      draft = candidate;
     }
 
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
@@ -70,18 +79,35 @@ export async function runJudging(supabase, config, options = {}) {
     // Always run claim verification — it does web search, not URL-fetch, so the
     // prejudge stage hasn't done it. Run citation subagent only if we don't have
     // a prejudge result to reuse.
-    const [subagentResult, claimVerification] = await Promise.all([
-      reuseCitation
-        ? Promise.resolve(subagent)
-        : runCitationVerificationSubagent(client, config, { draft, fetches: linkFetches }),
-      runClaimVerificationSubagent(client, config, { draft }),
-    ]);
+    //
+    // Run sequentially — both subagents share the same per-model TPM bucket
+    // (default Haiku), and back-to-back parallel calls were the original
+    // 11:01 cascade that caused 30k Sonnet TPM to crater. Sequential adds
+    // ~10s latency on average and removes a whole class of rate-limit failures.
+    const subagentResult = reuseCitation
+      ? subagent
+      : await runCitationVerificationSubagent(client, config, { draft, fetches: linkFetches });
+    const claimVerification = await runClaimVerificationSubagent(client, config, { draft });
     subagent = subagentResult;
-    const linkContext = { fetches: linkFetches, subagent, claimVerification };
 
     const contradictedClaims = (claimVerification?.assessments ?? []).filter(
       (a) => a.verdict === 'contradicted'
     );
+
+    // The main judge prompt only needs claims that *failed* — supported
+    // claims are noise that inflates Sonnet input tokens by 30%+ on long
+    // drafts. Drop the supported/unverifiable assessments; keep summary +
+    // flags for context. Contradicted claims drive both the verdict
+    // override and the revision instructions, so we surface only those.
+    const judgeClaimContext = claimVerification
+      ? {
+          assessments: contradictedClaims,
+          contradicted_count: contradictedClaims.length,
+          subagent_flags: claimVerification.subagent_flags ?? [],
+          subagent_summary: claimVerification.subagent_summary ?? '',
+        }
+      : null;
+    const linkContext = { fetches: linkFetches, subagent, claimVerification: judgeClaimContext };
 
     let result;
     try {
@@ -97,25 +123,68 @@ export async function runJudging(supabase, config, options = {}) {
       // a 0-score REJECT — that silently kills good drafts. Leave the draft in a
       // re-judgeable state (judge_pass null), keep topic status unchanged, and
       // notify Slack so a human knows. Next judge tick will retry.
+      const previousFlags = Array.isArray(draft.judge_flags) ? draft.judge_flags : [];
+      const previousDefers = previousFlags.filter((f) =>
+        typeof f === 'string' && f.startsWith('defer:')
+      ).length;
+      const deferAttempt = previousDefers + 1;
+      const MAX_DEFERS = 4;
+      const exhausted = deferAttempt >= MAX_DEFERS;
+      const reasonText = anthropicErr?.message || anthropicErr?.tag || 'anthropic_unavailable';
+
       try {
-        const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-        await slack.chat.postMessage({
-          channel: config.SLACK_CHANNEL_ID,
-          text:
-            `⚠️ *Judge unavailable — draft left for retry*\n` +
-            `*Draft:* \`${draft.id}\` (${draft.blog_title || 'untitled'})\n` +
-            `*Reason:* ${anthropicErr?.message || 'anthropic_unavailable'}\n` +
-            `Will retry on next \`/api/judge-now\` or scheduled cron tick.`,
-        });
-      } catch (slackErr) {
-        fail('runJudging:fallbackSlack', slackErr, { draftId: draft.id });
+        await supabase
+          .from('content_drafts')
+          .update({
+            judge_flags: [
+              ...previousFlags,
+              `defer:${new Date().toISOString()}:${(reasonText || '').slice(0, 200)}`,
+            ],
+          })
+          .eq('id', draft.id);
+      } catch (dbErr) {
+        fail('runJudging:deferTrack', dbErr, { draftId: draft.id });
       }
-      success('runJudging', { draftId: draft.id, deferred: true, reason: 'anthropic_unavailable' });
+
+      // Slack notification cadence: alert on attempt #1 (something is wrong)
+      // and on the final attempt (gave up). Suppress middle retries so the
+      // channel doesn't get hammered every 5 min on a multi-hour outage.
+      const shouldNotify = deferAttempt === 1 || exhausted;
+      if (shouldNotify) {
+        try {
+          const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+          const header = exhausted
+            ? `🚨 *Judge gave up after ${MAX_DEFERS} attempts — manual action needed*`
+            : `⚠️ *Judge deferred draft (attempt ${deferAttempt}/${MAX_DEFERS}) — will auto-retry*`;
+          await slack.chat.postMessage({
+            channel: config.SLACK_CHANNEL_ID,
+            text:
+              `${header}\n` +
+              `*Draft:* \`${draft.id}\` (${draft.blog_title || 'untitled'})\n` +
+              `*Reason:* ${reasonText}\n` +
+              (exhausted
+                ? `Run \`/api/judge-now\` after fixing, or archive the topic.`
+                : `Next retry on the \`*/5 min\` judge cron.`),
+          });
+        } catch (slackErr) {
+          fail('runJudging:fallbackSlack', slackErr, { draftId: draft.id });
+        }
+      }
+
+      success('runJudging', {
+        draftId: draft.id,
+        deferred: true,
+        attempt: deferAttempt,
+        exhausted,
+        reason: reasonText.slice(0, 200),
+      });
       return {
         judged: false,
         deferred: true,
+        exhausted,
+        attempt: deferAttempt,
         draftId: draft.id,
-        reason: 'anthropic_unavailable',
+        reason: reasonText,
       };
     }
 

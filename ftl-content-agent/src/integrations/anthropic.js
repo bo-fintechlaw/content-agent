@@ -1,39 +1,73 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CircuitBreaker } from '../utils/circuit-breaker.js';
+import { tpmBudget, estimateInputTokens } from '../utils/tpm-budget.js';
 import { fail, start, success } from '../utils/logger.js';
 
-const breaker = new CircuitBreaker('anthropic');
-
-const RATE_LIMIT_RETRY_CAP_MS = 90_000;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 /**
- * Wrap a single Anthropic messages.create call with one 429-aware retry.
- * Reads `retry-after` from the error if present (Anthropic returns it in seconds);
- * caps the wait at 90s so a stuck cron doesn't block forever. Other error classes
- * pass straight through to the circuit breaker.
+ * Per-model circuit breakers. Anthropic rate limits are enforced per-model,
+ * so a Sonnet stall shouldn't open the breaker on Haiku (and vice-versa).
+ * Breakers are lazy-instantiated on first use of each model.
  */
-async function callMessagesWith429Retry(operation) {
-  try {
-    return await operation();
-  } catch (err) {
-    const status = err?.status ?? err?.response?.status;
-    if (status !== 429) throw err;
-    const retryAfterSec = Number(
-      err?.headers?.['retry-after'] ??
-        err?.response?.headers?.['retry-after'] ??
-        30
-    );
-    const waitMs = Math.min(
-      RATE_LIMIT_RETRY_CAP_MS,
-      Math.max(1_000, Math.round(retryAfterSec * 1_000))
-    );
-    console.warn(
-      `⚠️ anthropic 429 — retrying once after ${Math.round(waitMs / 1_000)}s`
-    );
-    await sleep(waitMs);
-    return await operation();
+const breakers = new Map();
+function getBreaker(model) {
+  const key = model || DEFAULT_MODEL;
+  let b = breakers.get(key);
+  if (!b) {
+    b = new CircuitBreaker(`anthropic:${key}`);
+    breakers.set(key, b);
   }
+  return b;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
+
+/**
+ * Retry the underlying messages.create call with exponential backoff + jitter
+ * on retryable errors (429 rate limit, 5xx). Non-retryable errors (4xx other
+ * than 429) propagate immediately.
+ *
+ * Three attempts total (initial + 2 retries) with delays roughly:
+ *   attempt 1 fails → wait ~30s ± jitter
+ *   attempt 2 fails → wait ~90s ± jitter
+ *   attempt 3 fails → throw
+ *
+ * For 429 specifically, prefer the server's `retry-after` header when it
+ * exceeds our scheduled backoff (capped at 240s so a stuck cron doesn't
+ * block forever).
+ */
+const RETRY_BASE_MS = [30_000, 90_000];
+const RETRY_CAP_MS = 240_000;
+
+async function callWithBackoff(operation) {
+  let lastErr;
+  for (let attempt = 0; attempt < RETRY_BASE_MS.length + 1; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastErr = err;
+      const status = err?.status ?? err?.response?.status ?? null;
+      const retryable = status === 429 || (typeof status === 'number' && status >= 500);
+      const isLast = attempt === RETRY_BASE_MS.length;
+      if (!retryable || isLast) throw err;
+
+      const baseWait = RETRY_BASE_MS[attempt];
+      const retryAfterSec = Number(
+        err?.headers?.['retry-after'] ?? err?.response?.headers?.['retry-after'] ?? 0
+      );
+      const headerWaitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? Math.round(retryAfterSec * 1_000)
+        : 0;
+      const waitMs = Math.min(RETRY_CAP_MS, jitter(Math.max(baseWait, headerWaitMs)));
+      console.warn(
+        `⚠️ anthropic ${status} — retry ${attempt + 1}/${RETRY_BASE_MS.length} in ${Math.round(waitMs / 1000)}s`
+      );
+      await sleep(waitMs);
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -57,27 +91,36 @@ export function createAnthropicClient(apiKey) {
  */
 export async function promptJson(client, args) {
   start('promptJson');
+  const model = args.model || DEFAULT_MODEL;
+  const estimate = estimateInputTokens({ system: args.system, user: args.user });
+  await tpmBudget.waitForCapacity(model, estimate);
+
+  const breaker = getBreaker(model);
   const result = await breaker.execute(
     async () =>
-      callMessagesWith429Retry(async () => {
+      callWithBackoff(async () => {
         const resp = await client.messages.create({
-          model: args.model ?? 'claude-sonnet-4-6',
+          model,
           max_tokens: args.maxTokens ?? 1800,
           temperature: args.temperature ?? 0.2,
           system: args.system,
           messages: [{ role: 'user', content: args.user }],
         });
+        tpmBudget.record(model, resp.usage?.input_tokens ?? estimate);
         const text =
           resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
           '';
         return parseJsonResponse(text);
       }),
-    { error: 'anthropic_unavailable' }
+    'anthropic_unavailable'
   );
 
   if (result?.error) {
-    fail('promptJson', new Error(result.error));
-    throw new Error(result.error);
+    const err = new Error(result.reason || result.error);
+    err.tag = result.error;
+    err.status = result.status ?? null;
+    fail('promptJson', err);
+    throw err;
   }
   success('promptJson');
   return result;
@@ -85,19 +128,33 @@ export async function promptJson(client, args) {
 
 /**
  * Like promptJson but enables Anthropic's server-managed web_search tool.
- * The model may invoke web_search up to maxSearches times during a single turn;
- * Anthropic runs the searches and returns the model's final text response.
+ * The model may invoke web_search up to maxSearches times; each tool round
+ * re-bills the conversation history, so a high maxSearches blows through
+ * the TPM budget — we add a multiplier to the pre-call estimate.
  *
  * @param {Anthropic} client
  * @param {{ system: string, user: string, model?: string, maxTokens?: number, temperature?: number, maxSearches?: number }} args
  */
 export async function promptWithWebSearchJson(client, args) {
   start('promptWithWebSearchJson');
+  const model = args.model || DEFAULT_MODEL;
+  const maxSearches = args.maxSearches ?? 8;
+  const baseEstimate = estimateInputTokens({
+    system: args.system,
+    user: args.user,
+    toolOverheadTokens: 1_500,
+  });
+  // web_search re-sends the full conversation each tool round; budget for
+  // ~3x typical multi-turn loop (very conservative — most queries use 2–4 searches).
+  const estimate = baseEstimate * Math.max(2, Math.min(4, Math.ceil(maxSearches / 3)));
+  await tpmBudget.waitForCapacity(model, estimate);
+
+  const breaker = getBreaker(model);
   const result = await breaker.execute(
     async () =>
-      callMessagesWith429Retry(async () => {
+      callWithBackoff(async () => {
         const resp = await client.messages.create({
-          model: args.model ?? 'claude-sonnet-4-6',
+          model,
           max_tokens: args.maxTokens ?? 4_000,
           temperature: args.temperature ?? 0.1,
           system: args.system,
@@ -105,22 +162,26 @@ export async function promptWithWebSearchJson(client, args) {
             {
               type: 'web_search_20250305',
               name: 'web_search',
-              max_uses: args.maxSearches ?? 8,
+              max_uses: maxSearches,
             },
           ],
           messages: [{ role: 'user', content: args.user }],
         });
+        tpmBudget.record(model, resp.usage?.input_tokens ?? estimate);
         const text =
           resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
           '';
         return parseJsonResponse(text);
       }),
-    { error: 'anthropic_unavailable' }
+    'anthropic_unavailable'
   );
 
   if (result?.error) {
-    fail('promptWithWebSearchJson', new Error(result.error));
-    throw new Error(result.error);
+    const err = new Error(result.reason || result.error);
+    err.tag = result.error;
+    err.status = result.status ?? null;
+    fail('promptWithWebSearchJson', err);
+    throw err;
   }
   success('promptWithWebSearchJson');
   return result;

@@ -33,7 +33,7 @@ export async function runCitationVerificationSubagent(anthropicClient, config, {
   }
   try {
     const result = await promptJson(client, {
-      model: config.ANTHROPIC_MODEL,
+      model: config.ANTHROPIC_SUBAGENT_MODEL || config.ANTHROPIC_MODEL,
       system: CITATION_SUBAGENT_SYSTEM,
       user: buildCitationSubagentUserPrompt({ draft, fetches }),
       maxTokens: 2_200,

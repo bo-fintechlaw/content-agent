@@ -8,9 +8,11 @@ import { createApiRouter } from './routes/api.js';
 import { createSlackWebhookRouter } from './routes/webhooks.js';
 import { runSourceScan } from './pipeline/scanner.js';
 import { runTopicRanking } from './pipeline/ranker.js';
-import { runDraftAndJudge } from './pipeline/production.js';
+import { runDrafting } from './pipeline/drafter.js';
+import { runJudging } from './pipeline/judge.js';
 import { runOrchestration } from './pipeline/orchestrator.js';
 import { runWeeklyReport } from './pipeline/weekly-report.js';
+import { tpmBudget } from './utils/tpm-budget.js';
 import { registerLinkedInOAuthDevCallback } from './routes/linkedin-oauth.js';
 import {
   createSlackClient,
@@ -29,6 +31,14 @@ async function main() {
   start('main');
 
   const config = validateEnv();
+
+  // Wire per-model TPM caps from validated env so anthropic.js calls
+  // throttle below Anthropic's per-tier ceilings before we hit a 429.
+  tpmBudget.setLimit(config.ANTHROPIC_MODEL, config.ANTHROPIC_TPM_LIMIT);
+  tpmBudget.setLimit(
+    config.ANTHROPIC_SUBAGENT_MODEL,
+    config.ANTHROPIC_SUBAGENT_TPM_LIMIT
+  );
 
   void initializeMcpConnections({
     NOTION_MCP_URL: config.NOTION_MCP_URL,
@@ -114,45 +124,98 @@ async function main() {
     { timezone: 'America/New_York' }
   );
 
-  // ── Daily content — 7 AM ET ───────────────────────────────────
-  // Picks the draft queue (revision first, else best ranked). Ranked rows must meet
-  // DAILY_PUBLISH_MIN_RELEVANCE (default 7). Then judges → Slack for approval (no auto-publish
-  // unless AUTO_PUBLISH_ON_REVIEW is set). For an extra post any time, use GET
-  // /api/start-production?topicId=...
+  // ── Daily drafter — 7 AM ET ───────────────────────────────────
+  // Picks the draft queue (revision first, else best ranked) and creates the
+  // draft only. Judging is decoupled into its own cron below so the two
+  // stages don't compete for the same per-minute Anthropic TPM bucket.
+  // For on-demand draft+judge in a single tick, use GET /api/start-production?topicId=...
   cron.schedule(
     '0 7 * * *',
     async () => {
-      start('cron:dailyContent');
+      start('cron:dailyDrafter');
       try {
-        await withCronRun(supabaseClient, 'cron:dailyContent', async () => {
-          const result = await runDraftAndJudge(supabaseClient, config, {
+        await withCronRun(supabaseClient, 'cron:dailyDrafter', async () => {
+          const result = await runDrafting(supabaseClient, config, {
             minRelevanceScore: config.DAILY_PUBLISH_MIN_RELEVANCE,
-            runKind: 'scheduled',
           });
-          success('cron:dailyContent', result);
-          if (result.draft && !result.draft.drafted) {
+          success('cron:dailyDrafter', result);
+          if (!result.drafted) {
             try {
               const slack = createSlackClient(config.SLACK_BOT_TOKEN);
               await sendDailyNoDraftNotification(
                 slack,
                 config.SLACK_CHANNEL_ID,
-                result.draft
+                result
               );
             } catch (slackErr) {
-              fail('cron:dailyContent:slack', slackErr);
+              fail('cron:dailyDrafter:slack', slackErr);
             }
           }
           return {
-            runKind: result.runKind,
-            drafted: result.draft?.drafted ?? false,
-            draftId: result.draft?.draftId ?? null,
-            judged: result.judge?.judged ?? false,
-            verdict: result.judge?.verdict ?? null,
-            deferred: result.judge?.deferred ?? false,
+            drafted: result.drafted ?? false,
+            draftId: result.draftId ?? null,
+            topicId: result.topicId ?? null,
+            reason: result.reason ?? null,
           };
         });
       } catch (e) {
-        fail('cron:dailyContent', e);
+        fail('cron:dailyDrafter', e);
+      }
+    },
+    { timezone: 'America/New_York' }
+  );
+
+  // ── Judge tick — every 5 min ──────────────────────────────────
+  // Single entry point for both first-judge and retry of deferred drafts.
+  // Picks the oldest unjudged draft created at least 5 min ago (so the
+  // drafter's TPM burst has cleared the per-minute window before we add the
+  // judge's load) and that hasn't blown the defer cap. Single-flight guard
+  // mirrors orchestration so a slow tick can't overlap the next.
+  let judgeTickRunning = false;
+  cron.schedule(
+    '*/5 * * * *',
+    async () => {
+      if (judgeTickRunning) return;
+      judgeTickRunning = true;
+      start('cron:judge');
+      try {
+        await withCronRun(supabaseClient, 'cron:judge', async () => {
+          // Filter at the SQL boundary so we never even look at drafts
+          // created seconds ago — they need to age out of the same TPM
+          // window the drafter just consumed.
+          const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+          const { data: candidates, error: qErr } = await supabaseClient
+            .from('content_drafts')
+            .select('id, judge_flags, created_at')
+            .is('judge_pass', null)
+            .lt('created_at', fiveMinAgo)
+            .order('created_at', { ascending: true })
+            .limit(10);
+          if (qErr) throw new Error(qErr.message);
+          const MAX_DEFERS = 4;
+          const next = (candidates ?? []).find((d) => {
+            const flags = Array.isArray(d.judge_flags) ? d.judge_flags : [];
+            const defers = flags.filter(
+              (f) => typeof f === 'string' && f.startsWith('defer:')
+            );
+            return defers.length < MAX_DEFERS;
+          });
+          if (!next) {
+            success('cron:judge', { reason: 'no_judgeable_drafts' });
+            return { judged: false, reason: 'no_judgeable_drafts' };
+          }
+          const result = await runJudging(supabaseClient, config, { draftId: next.id });
+          success('cron:judge', {
+            draftId: next.id,
+            judged: result.judged ?? false,
+            deferred: result.deferred ?? false,
+          });
+          return result;
+        });
+      } catch (e) {
+        fail('cron:judge', e);
+      } finally {
+        judgeTickRunning = false;
       }
     },
     { timezone: 'America/New_York' }

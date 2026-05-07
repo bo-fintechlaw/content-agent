@@ -15,17 +15,29 @@ describe('CircuitBreaker', () => {
     expect(result).toBe('ok');
   });
 
-  it('returns fallback on failure', async () => {
+  it('returns fallback shape on failure, augmented with real reason', async () => {
     const result = await breaker.execute(
       () => Promise.reject(new Error('fail')),
       { error: 'fallback' }
     );
-    expect(result).toEqual({ error: 'fallback' });
+    expect(result).toMatchObject({ error: 'fallback', reason: 'fail', status: null });
+  });
+
+  it('preserves all fallback object fields (e.g. nested data) on failure', async () => {
+    const result = await breaker.execute(
+      () => Promise.reject(new Error('boom')),
+      { data: { id: null }, error: 'linkedin_unavailable' }
+    );
+    expect(result).toMatchObject({
+      data: { id: null },
+      error: 'linkedin_unavailable',
+      reason: 'boom',
+    });
   });
 
   it('returns default error object when no fallback provided', async () => {
     const result = await breaker.execute(() => Promise.reject(new Error('boom')));
-    expect(result).toEqual({ error: 'boom' });
+    expect(result).toMatchObject({ error: 'boom', reason: 'boom' });
   });
 
   it('opens circuit after max failures', async () => {
@@ -37,7 +49,10 @@ describe('CircuitBreaker', () => {
       () => Promise.resolve('should not run'),
       { error: 'Service temporarily unavailable' }
     );
-    expect(result).toEqual({ error: 'Service temporarily unavailable' });
+    expect(result).toMatchObject({
+      error: 'Service temporarily unavailable',
+      reason: 'circuit_open:test-service',
+    });
   });
 
   it('resets failure count on success', async () => {
@@ -71,6 +86,9 @@ describe('CircuitBreaker', () => {
       await breaker.execute(() => Promise.reject(new Error('fail')));
     }
     const result = await breaker.execute(() => Promise.resolve('nope'));
-    expect(result).toEqual({ error: 'Service temporarily unavailable' });
+    expect(result).toMatchObject({
+      error: 'Service temporarily unavailable',
+      reason: 'circuit_open:test-service',
+    });
   });
 });

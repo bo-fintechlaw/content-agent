@@ -33,7 +33,7 @@ export async function runClaimVerificationSubagent(anthropicClient, config, { dr
 
   try {
     const result = await promptWithWebSearchJson(client, {
-      model: config.ANTHROPIC_MODEL,
+      model: config.ANTHROPIC_SUBAGENT_MODEL || config.ANTHROPIC_MODEL,
       system: CLAIM_VERIFICATION_SYSTEM,
       user: buildClaimVerificationUserPrompt({ draft }),
       maxTokens: 4_000,

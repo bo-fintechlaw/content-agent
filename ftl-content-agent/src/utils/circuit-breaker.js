@@ -11,10 +11,34 @@ export class CircuitBreaker {
     this.resetTimeout = resetTimeout;
   }
 
+  /**
+   * Run `operation`. On failure, return a fallback whose `reason` / `status`
+   * fields carry the *real* upstream error so callers can surface it to humans
+   * instead of a fixed sentinel.
+   *
+   * `fallback` may be:
+   *  - a string: shorthand for `{ error: <string> }`
+   *  - an object: returned as-is, augmented with `reason` + `status`
+   *  - null / undefined: derive a minimal `{ error }` from the upstream message
+   *
+   * The object form preserves legacy callsites that depend on a specific
+   * fallback shape (e.g. `{ data: { id: null }, error: 'linkedin_unavailable' }`).
+   */
   async execute(operation, fallback = null) {
+    const fallbackObj =
+      typeof fallback === 'string'
+        ? { error: fallback }
+        : fallback && typeof fallback === 'object'
+          ? { ...fallback }
+          : null;
+
     if (this.circuitOpen) {
       console.warn(`⚠️ Circuit open for ${this.serviceName}`);
-      return fallback ?? { error: 'Service temporarily unavailable' };
+      return {
+        ...(fallbackObj ?? { error: 'Service temporarily unavailable' }),
+        reason: `circuit_open:${this.serviceName}`,
+        status: null,
+      };
     }
     try {
       const result = await operation();
@@ -22,11 +46,17 @@ export class CircuitBreaker {
       return result;
     } catch (error) {
       this.recordFailure();
+      const rawMessage = error?.message ?? String(error);
+      const status = error?.status ?? error?.response?.status ?? null;
       console.error(
         `❌ ${this.serviceName} failed (${this.failures}/${this.maxFailures}):`,
-        error.message
+        rawMessage
       );
-      return fallback ?? { error: error.message };
+      return {
+        ...(fallbackObj ?? { error: rawMessage }),
+        reason: rawMessage.slice(0, 500),
+        status,
+      };
     }
   }
 
