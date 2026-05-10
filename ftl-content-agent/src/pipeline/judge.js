@@ -1,6 +1,8 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
 import { createSlackClient, sendReviewMessage } from '../integrations/slack.js';
 import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from '../prompts/judge-system.js';
+import { reviseBlogContent } from './blog-reviser.js';
+import { reviseSocialContent } from './social-reviser.js';
 import { extractHttpUrlsFromDraft, fetchAllCitationPreviews } from './citation-harvest.js';
 import { runCitationVerificationSubagent } from './citation-subagent.js';
 import { runClaimVerificationSubagent } from './claim-verification-subagent.js';
@@ -251,31 +253,138 @@ export async function runJudging(supabase, config, options = {}) {
 
     const contradictedFlag = contradictedClaims.length ? ['factually_contradicted'] : [];
 
-    // REVISE: send back to drafter if revision budget remains. Contradiction
-    // drafts get 2 passes, others get 1.
+    // If the surgical reviser fails inside the REVISE branch below, we capture
+    // the failure note here and fall through to the Slack review block with a
+    // terminal label. Hoisted so the post-block judge_flags merge can pick it
+    // up without re-reading state.
+    let surgicalRevisionFailedNote = null;
+
+    // REVISE with budget remaining: surgically revise the existing draft in
+    // place using reviseBlogContent (and reviseSocialContent when feedback
+    // touches social). The reviser preserves unchanged sections byte-for-byte
+    // and resets judge_pass to null so the next judge tick re-judges. This
+    // replaces the old "flip topic to revision and wait for the next dailyDrafter
+    // cron" path — that flow stalled mid-day when the daily drafter wouldn't
+    // run again until 7 AM ET the following day.
     if (isRevise && revisionsUsed < revisionCap) {
+      const revisionFeedback = allRevisionInstructions
+        .map((i) => String(i).trim())
+        .filter(Boolean)
+        .join('\n\n---\n\n');
+
+      let surgicalSucceeded = false;
+      let surgicalError = null;
+      try {
+        await reviseBlogContent(supabase, config, draft.id, revisionFeedback);
+        surgicalSucceeded = true;
+      } catch (reviseErr) {
+        surgicalError = reviseErr;
+        fail('runJudging:reviseBlogContent', reviseErr, { draftId: draft.id });
+      }
+
+      // If feedback names a social surface, run the surgical social reviser too.
+      // Best-effort — a failure here doesn't stop the blog re-judge.
+      const socialMatcher = /\b(linkedin|x[\s_-]?(post|tweet|thread)|tweet|hashtag)\b/i;
+      const touchesSocial =
+        surgicalSucceeded &&
+        allRevisionInstructions.some((i) => socialMatcher.test(String(i)));
+      if (touchesSocial) {
+        try {
+          await reviseSocialContent(supabase, config, draft.id, revisionFeedback);
+        } catch (reviseSocErr) {
+          fail('runJudging:reviseSocialContent', reviseSocErr, { draftId: draft.id });
+        }
+      }
+
+      // Citation review pass on the revised draft (item 2c). Validates URLs
+      // and surfaces any new broken/contradicted citations as prejudge_warning
+      // flags so the next judge tick can use them as preverified context and
+      // the human reviewer sees them in Slack.
+      if (surgicalSucceeded) {
+        try {
+          const { data: revisedDraft, error: revErr } = await supabase
+            .from('content_drafts')
+            .select('*')
+            .eq('id', draft.id)
+            .single();
+          if (revErr || !revisedDraft) {
+            throw new Error(revErr?.message || 'revised_draft_not_found');
+          }
+          const citedUrls = extractHttpUrlsFromDraft(revisedDraft);
+          const revisedFetches = await fetchAllCitationPreviews(citedUrls);
+          const citationReview = await runCitationVerificationSubagent(client, config, {
+            draft: revisedDraft,
+            fetches: revisedFetches,
+          });
+          const subagentFlagWarnings = (citationReview?.subagent_flags ?? []).map(
+            (f) => `prejudge_warning: post-revision citation: ${String(f).slice(0, 200)}`
+          );
+          const failedAssessments = (citationReview?.assessments ?? [])
+            .filter((a) => a && a.verdict && a.verdict !== 'verified')
+            .map(
+              (a) =>
+                `prejudge_warning: post-revision citation: ${a.url ?? '(no url)'} — ${
+                  a.verdict
+                }${a.rationale ? `: ${String(a.rationale).slice(0, 200)}` : ''}`
+            );
+          const newWarnings = [...subagentFlagWarnings, ...failedAssessments];
+          if (newWarnings.length) {
+            // reviseBlogContent cleared judge_flags; merge our warnings into
+            // the now-empty array so the next judge tick can read them.
+            const existing = Array.isArray(revisedDraft.judge_flags)
+              ? revisedDraft.judge_flags
+              : [];
+            await supabase
+              .from('content_drafts')
+              .update({ judge_flags: [...existing, ...newWarnings] })
+              .eq('id', draft.id);
+          }
+          success('runJudging:postReviseCitation', {
+            draftId: draft.id,
+            warnings: newWarnings.length,
+          });
+        } catch (citationErr) {
+          fail('runJudging:postReviseCitation', citationErr, { draftId: draft.id });
+        }
+      }
+
+      if (surgicalSucceeded) {
+        // Topic stays in 'judging' — this draft will be re-picked up by the
+        // next judge tick because reviseBlogContent reset judge_pass to null.
+        await supabase
+          .from('content_topics')
+          .update({ status: 'judging', updated_at: new Date().toISOString() })
+          .eq('id', draft.topic_id);
+
+        success('runJudging', {
+          draftId: draft.id,
+          verdict,
+          composite,
+          revised: true,
+          surgical: true,
+        });
+        return {
+          judged: false,
+          revised: true,
+          surgical: true,
+          draftId: draft.id,
+          verdict,
+          composite,
+        };
+      }
+
+      // Surgical revision failed — fall through to the standard Slack review
+      // path with terminal framing. Record the failure note so the
+      // post-block judge_flags update preserves it.
+      surgicalRevisionFailedNote = `surgical_revision_failed: ${String(
+        surgicalError?.message ?? 'unknown'
+      ).slice(0, 200)}`;
+      // Bump revision_count so a second round at this stage doesn't keep
+      // looping the same failed reviser call.
       await supabase
         .from('content_drafts')
-        .update({
-          revision_count: revisionsUsed + 1,
-          judge_scores: result.scores,
-          judge_pass: false,
-          judge_flags: [
-            ...prejudgeWarnings,
-            ...(result.flags ?? []),
-            ...contradictedFlag,
-            ...allRevisionInstructions.map((i) => `revision: ${i}`),
-          ],
-        })
+        .update({ revision_count: revisionsUsed + 1 })
         .eq('id', draft.id);
-
-      await supabase
-        .from('content_topics')
-        .update({ status: 'revision', updated_at: new Date().toISOString() })
-        .eq('id', draft.topic_id);
-
-      success('runJudging', { draftId: draft.id, verdict, composite, revised: true });
-      return { judged: false, revised: true, draftId: draft.id, verdict, composite };
     }
 
     // PASS / REVISE-at-cap / REJECT all surface to Slack the same way: a
@@ -292,7 +401,12 @@ export async function runJudging(supabase, config, options = {}) {
       .update({
         judge_scores: result.scores,
         judge_pass: judgePass,
-        judge_flags: [...prejudgeWarnings, ...(result.flags ?? []), ...contradictedFlag],
+        judge_flags: [
+          ...prejudgeWarnings,
+          ...(result.flags ?? []),
+          ...contradictedFlag,
+          ...(surgicalRevisionFailedNote ? [surgicalRevisionFailedNote] : []),
+        ],
       })
       .eq('id', draft.id);
 

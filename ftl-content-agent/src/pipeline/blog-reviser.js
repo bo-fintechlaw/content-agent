@@ -118,6 +118,10 @@ export async function reviseBlogContent(supabase, config, draftId, feedback) {
     revision_count: (draft.revision_count ?? 0) + 1,
     judge_pass: null,
     judge_scores: null,
+    // Stale revision instructions and old prejudge warnings would otherwise
+    // leak into the next review cycle. The next judge tick repopulates flags
+    // from a fresh evaluation of the revised body.
+    judge_flags: [],
   };
 
   const { error: upErr } = await supabase

@@ -42,9 +42,22 @@ export async function sendReviewMessage(client, channel, payload) {
 
   const verdict = payload.verdict ?? (payload.scores ? 'PASS' : '');
   const composite = payload.composite ?? '';
-  const statusLabel = verdict === 'PASS'
-    ? 'Ready for approval'
-    : 'Needs review — see judge notes';
+  // Status label distinguishes a passing draft from a draft that exhausted
+  // its auto-revision budget (REVISE verdict here means the surgical reviser
+  // already ran the maximum allowed times) and a hard reject. The reviewer
+  // needs to know whether the agent thinks this is shippable, terminally
+  // stuck, or hard-rejected.
+  let statusLabel;
+  if (verdict === 'PASS') {
+    statusLabel = 'Ready for approval';
+  } else if (verdict === 'REJECT') {
+    statusLabel = ':no_entry: Judge rejected — manual review required';
+  } else if (verdict === 'REVISE') {
+    statusLabel =
+      ':rotating_light: Auto-revision exhausted — manual edits required';
+  } else {
+    statusLabel = 'Needs review — see judge notes';
+  }
 
   const blocks = [
     {

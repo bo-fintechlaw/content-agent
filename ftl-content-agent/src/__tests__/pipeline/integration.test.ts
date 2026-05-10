@@ -241,6 +241,40 @@ jest.unstable_mockModule('../../pipeline/claim-verification-subagent.js', () => 
   ),
 }));
 
+// Surgical revisers — invoked from the judge on REVISE verdicts. Mocked here
+// so the integration test does not need to thread additional promptJson
+// responses for the in-place revision pass; it just records the call shape.
+jest.unstable_mockModule('../../pipeline/blog-reviser.js', () => ({
+  reviseBlogContent: jest.fn<any>(async (supabase: any, _config: any, draftId: string) => {
+    // Mirror the production behavior: clear judge_pass / judge_scores /
+    // judge_flags and bump revision_count so the next judge tick treats this
+    // as a re-judgeable draft.
+    const draft = dbDrafts.find((d) => d.id === draftId);
+    if (draft) {
+      draft.judge_pass = null;
+      draft.judge_scores = null;
+      draft.judge_flags = [];
+      draft.revision_count = (draft.revision_count ?? 0) + 1;
+    }
+    return {
+      draftId,
+      blogTitle: draft?.blog_title ?? '',
+      changeSummary: 'mocked surgical revision',
+      changedSectionIndices: [0],
+    };
+  }),
+}));
+
+jest.unstable_mockModule('../../pipeline/social-reviser.js', () => ({
+  reviseSocialContent: jest.fn<any>(async (_supabase: any, _config: any, draftId: string) => ({
+    blogTitle: '',
+    linkedinPost: '',
+    xPost: '',
+    xThread: [],
+    draftId,
+  })),
+}));
+
 // ---------- import pipeline modules after mocks ----------
 const { runTopicRanking } = await import('../../pipeline/ranker.js');
 const { runDrafting } = await import('../../pipeline/drafter.js');
@@ -455,22 +489,29 @@ describe('Pipeline Integration — Revision Loop', () => {
 
     const result = await runJudging(supabase, config);
 
-    // Should NOT be judged (sent back for revision)
+    // Should NOT be judged: a successful surgical revision returns
+    // judged=false, revised=true, surgical=true so the next judge tick
+    // re-evaluates the revised draft.
     expect(result.judged).toBe(false);
     expect(result.revised).toBe(true);
+    expect((result as any).surgical).toBe(true);
     expect(result.verdict).toBe('REVISE');
 
-    // Topic should be in revision state
+    // Topic stays in 'judging' — the surgical reviser keeps the topic in the
+    // judge queue, no longer flipping it to 'revision' / waiting for the
+    // daily drafter cron.
     const topic = dbTopics.find((t) => t.id === topicId);
-    expect(topic?.status).toBe('revision');
+    expect(topic?.status).toBe('judging');
 
-    // Draft should have revision_count incremented and judge_flags set
+    // Draft should be reset for re-judge: revision_count incremented,
+    // judge_pass null, judge_flags cleared (the mocked reviseBlogContent
+    // mirrors the production reset).
     const draft = dbDrafts.find((d) => d.id === draftId);
     expect(draft?.revision_count).toBe(1);
-    expect(draft?.judge_pass).toBe(false);
-    expect(draft?.judge_flags).toContain('weak_hook');
+    expect(draft?.judge_pass).toBeNull();
 
-    // Slack should NOT have been called (revision, not review)
+    // Slack should NOT have been called — a successful surgical revision
+    // defers all review messaging to the next judge tick.
     expect(sendReviewMessage).not.toHaveBeenCalled();
   });
 
