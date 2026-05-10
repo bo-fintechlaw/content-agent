@@ -24,33 +24,29 @@ export async function runSocialPosting(supabase, config, options = {}) {
 
   const maxPerRun = config.ORCHESTRATION_MAX_SOCIAL ?? 3;
 
-  const { data: topics, error: topicsErr } = await supabase
-    .from('content_topics')
-    .select('id,status')
-    .eq('status', 'published')
-    .order('updated_at', { ascending: false })
-    .limit(maxPerRun);
-
-  if (topicsErr) throw new Error(topicsErr.message);
-
-  const topicIds = (topics ?? []).map((t) => t.id);
-  if (!topicIds.length) {
-    success('runSocialPosting', { posted: 0, reason: 'no_published_topics' });
-    return { posted: 0, reason: 'no_published_topics' };
-  }
-
+  // Query drafts directly. Earlier versions filtered candidates via
+  // content_topics.status='published', but topic status can drift back to
+  // 'review' (e.g. via Slack request-changes after publish, or a re-judge),
+  // which silently stranded approved social posts even though the draft was
+  // already in Sanity. The draft-level state (sanity_document_id +
+  // published_at + social_approved=true + linkedin_post_id=null) is the
+  // canonical signal that something needs to post.
   const { data: drafts, error: draftsErr } = await supabase
     .from('content_drafts')
     .select(
-      'id,topic_id,blog_title,blog_slug,linkedin_post,x_post,x_thread,sanity_document_id,linkedin_post_id,x_post_id,social_approved'
+      'id,topic_id,blog_title,blog_slug,linkedin_post,x_post,x_thread,sanity_document_id,linkedin_post_id,x_post_id,social_approved,published_at'
     )
-    .in('topic_id', topicIds)
     .not('sanity_document_id', 'is', null)
+    .not('published_at', 'is', null)
     .eq('social_approved', true)
-    .order('created_at', { ascending: false })
+    .order('published_at', { ascending: false })
     .limit(maxPerRun * 2);
 
   if (draftsErr) throw new Error(draftsErr.message);
+  if (!drafts?.length) {
+    success('runSocialPosting', { posted: 0, reason: 'no_published_drafts' });
+    return { posted: 0, reason: 'no_published_drafts' };
+  }
 
   let postedLinkedIn = 0;
   let postedX = 0;
