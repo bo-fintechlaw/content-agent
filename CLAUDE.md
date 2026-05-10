@@ -61,7 +61,7 @@ Four tables — understand these before debugging:
 | `content_topics` | id (UUID), title, source_url, category, relevance_score, status, suggested_by | RSS items + manual suggestions |
 | `content_drafts` | id (UUID), topic_id (FK), blog_body (JSONB array), judge_scores (JSONB), judge_pass, revision_count, sanity_document_id | Generated content + judge results |
 | `content_config` | key (TEXT PK), value (JSONB) | Runtime config: seo_keywords, rss_feeds, schedule |
-| `content_analytics` | draft_id (FK), platform, impressions, engagements | Post-publish metrics |
+| `content_analytics` | draft_id (FK), platform, metric_kind, url, query, impressions, engagements, clicks, position, period_start/end, idem_key | Post-publish + search/social metrics (CSV-imported) |
 
 **Important:** `blog_body` is a JSONB array of `{title, body}` section objects, NOT a flat text field. `judge_scores` is JSONB with keys: accuracy, engagement, seo, voice, structure.
 
@@ -82,7 +82,21 @@ npm test             # Jest with --experimental-vm-modules
 - `GET /api/draft-now` — Run drafter
 - `GET /api/judge-now` — Run judge
 - `GET /api/orchestrate-now` — Run full publish + social cycle
+- `POST /api/analytics/import` — Ingest GSC / LinkedIn CSVs into `content_analytics`
+- `GET /api/analytics/hints` — Inspect the performance-feedback block the ranker will use next
+- `GET /api/cron-health` — Recent cron run history grouped by name
 - `GET /api/health` — Server + database health check
+
+**CSV analytics import (bulk via CLI):**
+```bash
+npm run analytics:import -- gsc-folder /path/to/gsc-export   # auto-detects Chart/Pages/Queries
+npm run analytics:import -- linkedin_posts <file.csv> <period_start> <period_end>
+```
+
+**Apply Supabase migrations (CLI is linked at user level):**
+```bash
+npx --yes supabase db query --linked --file src/db/migrations/<NNN>_*.sql
+```
 
 ---
 

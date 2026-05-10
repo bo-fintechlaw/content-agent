@@ -18,7 +18,11 @@ npm install
 npm start                  # listens on PORT (default 3001)
 ```
 
-Apply SQL migrations under `src/db/migrations/` in order, in Supabase, before first run.
+Apply SQL migrations under `src/db/migrations/` in order before first run. Either via the Supabase SQL editor or, if the CLI is linked to the project, via:
+
+```bash
+npx --yes supabase db query --linked --file src/db/migrations/<file>.sql
+```
 
 ## Manual triggers (server running)
 
@@ -30,6 +34,9 @@ Apply SQL migrations under `src/db/migrations/` in order, in Supabase, before fi
 | `GET /api/judge-now?draftId=…` | Judge a specific draft (or oldest unjudged if omitted) |
 | `GET /api/start-production?topicId=…` | On-demand draft + judge for a single topic |
 | `GET /api/orchestrate-now` | Run publish + social cycle |
+| `POST /api/analytics/import` | Ingest a CSV (GSC chart/pages/queries or LinkedIn posts) into `content_analytics` |
+| `GET /api/analytics/hints` | Preview the performance-feedback block injected into the next ranker run |
+| `GET /api/cron-health` | Cron-run history grouped by name |
 | `GET /api/health` | Server + DB health |
 
 ## LinkedIn OAuth (one-time, to obtain `LINKEDIN_ACCESS_TOKEN`)
@@ -41,6 +48,23 @@ Apply SQL migrations under `src/db/migrations/` in order, in Supabase, before fi
 ```bash
 npm run linkedin:exchange -- "PASTE_AUTHORIZATION_CODE_HERE"
 ```
+
+## Analytics ingestion
+
+The ranker reads performance feedback (top LinkedIn posts, GSC near-miss queries, CTR-gap pages) from `content_analytics` on every run. CSVs are imported via:
+
+```bash
+# Bulk-import a Google Search Console export folder (auto-detects Chart/Pages/Queries CSVs)
+npm run analytics:import -- gsc-folder /path/to/gsc-export
+
+# Or single file
+npm run analytics:import -- gsc_chart      <file.csv>
+npm run analytics:import -- gsc_pages      <file.csv> 2026-02-07 2026-05-08
+npm run analytics:import -- gsc_queries    <file.csv> 2026-02-07 2026-05-08
+npm run analytics:import -- linkedin_posts <file.csv> 2026-02-07 2026-05-08
+```
+
+Imports are idempotent (upsert on a deterministic `idem_key`). `GET /api/analytics/hints` returns the formatted block the ranker will see on its next tick.
 
 ## Tests
 

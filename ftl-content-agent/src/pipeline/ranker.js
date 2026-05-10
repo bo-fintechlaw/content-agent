@@ -2,6 +2,7 @@ import { createAnthropicClient, promptJson } from '../integrations/anthropic.js'
 import { DEFAULT_SEO_KEYWORDS } from '../config/seo-keywords.js';
 import { buildRankerUserPrompt, RANKER_SYSTEM_PROMPT } from '../prompts/ranker-system.js';
 import { computeRankerWeightedScore } from './verdict.js';
+import { formatHintsForPrompt, getRankerPerformanceHints } from './analytics-feedback.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -55,6 +56,11 @@ export async function runTopicRanking(supabase, config) {
 
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
     const minRel = minRelevanceFromConfig(config);
+    // Pull performance hints once per run. Same hints feed every per-topic
+    // call so the ranker's anchors are stable across the batch.
+    const performanceHints = formatHintsForPrompt(
+      await getRankerPerformanceHints(supabase)
+    );
     const autoScored = [];
     /** @type {Array<{ title: string, score: number, outcome: 'ranked' }>} */
     const manualRanked = [];
@@ -81,7 +87,11 @@ export async function runTopicRanking(supabase, config) {
         const result = await promptJson(client, {
           model: config.ANTHROPIC_MODEL,
           system: RANKER_SYSTEM_PROMPT,
-          user: buildRankerUserPrompt({ topic, seoKeywords: DEFAULT_SEO_KEYWORDS }),
+          user: buildRankerUserPrompt({
+            topic,
+            seoKeywords: DEFAULT_SEO_KEYWORDS,
+            performanceHints,
+          }),
           maxTokens: 900,
           temperature: 0.1,
         });

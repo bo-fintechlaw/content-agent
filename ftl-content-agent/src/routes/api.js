@@ -10,6 +10,8 @@ import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { reviseBlogContent } from '../pipeline/blog-reviser.js';
 import { runOrchestration } from '../pipeline/orchestrator.js';
 import { runWeeklyReport } from '../pipeline/weekly-report.js';
+import { importAnalyticsCsv } from '../pipeline/analytics-import.js';
+import { clearRankerHintsCache, getRankerPerformanceHints } from '../pipeline/analytics-feedback.js';
 import { createSlackClient, sendSocialReviewMessage } from '../integrations/slack.js';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
@@ -337,6 +339,60 @@ export function createApiRouter(supabaseClient, config) {
       res.json({ ok: true, ...result });
     } catch (error) {
       fail('GET /api/orchestrate-now', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // CSV-based analytics import. Two ways to call:
+  //   1. POST text/csv body with ?kind=...&periodStart=...&periodEnd=...
+  //   2. POST JSON { kind, csvText, periodStart, periodEnd }
+  // Accepts up to ~5MB of CSV. JSON bodies are handled by app-level express.json();
+  // this route adds an express.text() layer so text/csv arrives as a raw string.
+  router.post('/analytics/import', express.text({
+    type: ['text/csv', 'text/plain', 'application/octet-stream'],
+    limit: '5mb',
+  }), async (req, res) => {
+    start('POST /api/analytics/import');
+    try {
+      let kind, csvText, periodStart, periodEnd;
+      const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
+      if (contentType.includes('application/json') && req.body && typeof req.body === 'object') {
+        ({ kind, csvText, periodStart, periodEnd } = req.body);
+      } else {
+        kind = String(req.query.kind ?? '').trim();
+        periodStart = String(req.query.periodStart ?? '').trim() || null;
+        periodEnd = String(req.query.periodEnd ?? '').trim() || null;
+        csvText = typeof req.body === 'string' ? req.body : '';
+      }
+      if (!kind) return res.status(400).json({ ok: false, error: 'Missing kind' });
+      if (!csvText) return res.status(400).json({ ok: false, error: 'Missing csvText body' });
+
+      const result = await importAnalyticsCsv(supabaseClient, {
+        kind,
+        csvText,
+        periodStart,
+        periodEnd,
+      });
+      // Fresh import invalidates any cached ranker hints.
+      clearRankerHintsCache();
+      success('POST /api/analytics/import', result);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      fail('POST /api/analytics/import', error);
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  // Inspect what the ranker will see on its next run. Useful after an import
+  // to confirm the hints look right before the next ranker tick fires.
+  router.get('/analytics/hints', async (_req, res) => {
+    start('GET /api/analytics/hints');
+    try {
+      const hints = await getRankerPerformanceHints(supabaseClient, { force: true });
+      success('GET /api/analytics/hints');
+      res.json({ ok: true, hints });
+    } catch (error) {
+      fail('GET /api/analytics/hints', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });

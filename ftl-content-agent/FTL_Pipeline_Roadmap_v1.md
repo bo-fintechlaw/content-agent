@@ -1,8 +1,9 @@
 # FTL Content Agent — Pipeline Roadmap v1
 
-**Status:** Planning doc, not yet implemented
+**Status:** Phase 1 deploy soak complete; analytics ingestion + ranker feedback shipped 2026-05-09. Slack `/suggest` and newsletter module remain.
 **Author:** Roadmap session, 2026-04-30
-**Companion to:** `FTL_Prompt_Architecture_Proposal_v1.md` (prompt architecture)
+**Last updated:** 2026-05-09
+**Companion to:** `FTL_Prompt_Architecture_Proposal_v1.md` (prompt architecture), `FTL_Editorial_Intelligence_v1.md` (diversity + prior-posts + analytics)
 
 This doc captures the next planning horizon for the FTL content agent: cadence, manual topic ingestion, and the newsletter module. The Phase 1 prompt architecture (verdict.js, anchored ranker, fixed prompts) shipped 2026-04-30 and is independent of this roadmap.
 
@@ -261,14 +262,30 @@ Estimated 4-6 hours and adds a meaningful new failure surface (Gmail auth expira
 
 ## 5. Recommended sequencing
 
-| # | Item | Hours | Trigger to start |
+| # | Item | Hours | Status |
 |---|---|---|---|
-| 1 | Phase 1 deploy soak (cron runs, LinkedIn formatting, DeFi revision) | — | done; observe through 2026-05-07 |
-| 2 | Slack `/suggest` command | ~3 | after #1, if soak is clean |
-| 3 | Newsletter module (behind `ENABLE_NEWSLETTER=false` flag) | ~16 | after #2 ships and is exercised at least once |
-| 4 | First newsletter issue (manually triggered, full review cycle) | ~2 | after #3 deploys |
-| 5 | Newsletter cron auto-runs biweekly | — | after #4 ships clean |
-| 6 | Email ingestion | ~6 | only if Bo is copy-pasting regulator emails into Slack frequently |
+| 1 | Phase 1 deploy soak (cron runs, LinkedIn formatting, DeFi revision) | — | ✅ shipped + soaked |
+| 2 | Editorial intelligence — diversity guard, primary-source boost, prior-posts cross-reference | — | ✅ shipped 2026-05-07 (see `FTL_Editorial_Intelligence_v1.md` Phases 1+2) |
+| 3 | Analytics ingestion (CSV) + ranker feedback loop (GSC + LinkedIn) | — | ✅ shipped 2026-05-09 (see Editorial Intelligence Phase 3) |
+| 4 | FinTech Law company-page LinkedIn posting (in addition to Bo personal) | ~3 | ⏳ pending FTL company URN + token w/ `w_organization_social` |
+| 5 | LinkedIn CSV import (first run) — populates ranker hints w/ post performance | ~0.5 | ⏳ awaiting Bo's export |
+| 6 | Sanity-driven backfill of `published_posts_index` (covers pre-agent blogs) | ~2 | ⏳ unblocks GSC page→draft attribution |
+| 7 | Slack `/suggest` command | ~3 | ⏳ next planned build |
+| 8 | Newsletter module (behind `ENABLE_NEWSLETTER=false` flag) | ~16 | ⏳ after #7 |
+| 9 | First newsletter issue (manually triggered, full review cycle) | ~2 | ⏳ after #8 |
+| 10 | Newsletter cron auto-runs biweekly | — | ⏳ after #9 |
+| 11 | Title/meta CTR fix loop for poor-CTR top-ranked pages | ~4 | ⏳ defer until ≥2 weeks of imported data |
+| 12 | Email ingestion (regulator forwards) | ~6 | ⏳ only if `/suggest` proves insufficient |
+| 13 | Enzio company-page posting + topic-routed content variants | ~6 | ⏳ deferred per 2026-05-08 decision |
+
+### Open issues surfaced during operation
+
+| # | Issue | Discovered | Priority | Notes |
+|---|---|---|---|---|
+| O1 | **Silent judge rejection after max revisions** — when a draft fails its post-revision re-judge, the loop ends and `content_topics.status='revision'` but no Slack notification fires. From the operator's side this looks indistinguishable from "the cron didn't run." Fix: emit a Slack message (`:warning: Draft rejected after revision: <title> — <flags summary>`) with links to the preview + a "force-publish" / "abandon" button pair. | 2026-05-09 | 🔴 high | Caused today's perceived no-fire incident. Real cause: judge correctly caught a fabricated ABA Tech Report stat (`draft 76e0f173…`); silence misled. |
+| O2 | **Reviser cannot escape factually-contradicted loop** — auto-fix from commit `05362c2` rewrites the contradicted sentence, but the regenerated copy can re-introduce a near-equivalent claim and trip the same flag on re-judge. With `revision_count` capped at 1 the loop terminates failed. Fix: when the same flag re-fires, escalate the reviser's instruction (delete the entire offending paragraph, don't rewrite). Or: lift the cap to 2 specifically when only `factually_contradicted` remains. | 2026-05-09 | 🟠 medium | Same draft as O1. |
+| O3 | **No "force-publish" path on stuck draft** — if the operator disagrees with the judge or wants to ship a near-pass post manually, there's no in-band tool. Currently must edit Sanity by hand. Fix: a Slack button or `POST /api/force-publish?draftId=…&token=…` that bypasses judge_pass and routes straight to publisher. | 2026-05-09 | 🟡 low | |
+| O4 | **Topic queue starvation risk on Saturday/Sunday** — Monday-only weekly scan + ranker means by end-of-week the queue can be at 1-2 ranked topics. If today's topic gets stuck (as O1), next-day pick comes from a thin pool. Currently 254 pending, 2 ranked, 1 rejected, 4 published. Mitigation: extend ranker to run mid-week (Wed) on the cumulative backlog, not just Monday's scan. | 2026-05-09 | 🟡 low | Watch for 1-2 more weeks before acting. |
 
 ---
 

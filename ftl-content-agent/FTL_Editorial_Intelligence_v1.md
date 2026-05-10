@@ -1,7 +1,8 @@
 # FTL Content Agent — Editorial Intelligence Proposal v1
 
-**Status:** Planning doc, items 1 & 2 in progress 2026-05-07
+**Status:** Phase 1 + Phase 2 shipped 2026-05-07; Phase 3 (engagement feedback) partially shipped 2026-05-09 — GSC half live, LinkedIn half pending CSV
 **Author:** Editorial scoping session, 2026-05-07
+**Last updated:** 2026-05-09
 **Companion to:** `CLAUDE.md` (system spec), `FTL_Prompt_Architecture_Proposal_v1.md` (prompt arch), `FTL_Pipeline_Roadmap_v1.md` (cadence + newsletter)
 
 This doc captures three editorial concerns surfaced after the first week of soak: (1) source/topic diversity, (2) under-representation of primary-regulator material, and (3) the agent's lack of memory of its own prior work. None of these are addressed in the existing planning docs.
@@ -117,9 +118,17 @@ CREATE INDEX ON published_posts_index (published_at DESC);
 
 **Why FTS, not embeddings.** Corpus is ~100 posts and grows ~5/week. Postgres FTS is 30 LOC, no new dependency, no API key, and quality-good-enough for "find the post that overlaps". Embeddings (pgvector + OpenAI text-embedding-3-small) become worth it past ~500 posts or when topical similarity gets non-lexical. Documented as a Phase 3 upgrade.
 
-### 2.4 Engagement feedback loop (deferred — Phase 3)
+### 2.4 Engagement feedback loop (Phase 3 — partially shipped 2026-05-09)
 
-Once LinkedIn / X analytics retrieval lands (see roadmap §3.3 — "post-Phase-3"), the ranker should learn from it: bias toward source/category/framing combinations whose published posts performed above the median. Out of scope for this proposal because the prerequisite analytics pipeline isn't built yet. Re-evaluate after the newsletter analytics module ships (roadmap §3).
+**Shipped:** CSV-based analytics ingestion (`POST /api/analytics/import` + `npm run analytics:import`) writing to extended `content_analytics` (migration 010 + idem-key fix 011). Ranker now pulls top LinkedIn posts (when imported), GSC near-miss queries, and CTR-gap pages on every run and surfaces them as anchors via `analytics-feedback.js` → `ranker-system.js`. The ranker is told to apply +1 boosts on `engagement_potential` (near-miss capture) and `seo_fit` (CTR-gap overlap). 1-hour in-process cache; cleared on every fresh import.
+
+**First import (2026-05-09):** GSC chart 89 daily rows, GSC pages 102 rows (utm-tagged dupes merged into canonical URLs), GSC queries 1,000 rows. Page→draft attribution returned 0 because the high-traffic GSC pages are pre-agent manual blogs not present in `published_posts_index`.
+
+**Outstanding:**
+- **LinkedIn CSV** — parser supports the export shape but no LinkedIn data has been ingested yet. Bo has the manual export; importer awaits the file.
+- **published_posts_index Sanity backfill** — currently only contains agent-published drafts (17). The pre-agent blogs (Solana ETF, Erebor, AI-native law firms, Rari Capital, Macquarie) are absent, so GSC pages can't attribute to a `draft_id`. Hint formatting works without `draft_id` (uses URLs directly), but downstream features needing `draft_id` are blocked. Fix: backfill from Sanity API rather than `content_drafts`.
+- **Title/meta CTR fix loop** — automated alternate-title generation for pages with position ≤10 + CTR <0.5% over 30 days, Slack-routed for one-click swap into Sanity. Highest-impact opportunity (Solana ETF alone: 23,064 impressions / 0.00% CTR). Deferred until 2 weeks of imported data confirms the pattern is stable.
+- **Auto-import cron** — currently CSV imports are manual. Once Bo has a stable export cadence (or LinkedIn API access with `r_organization_social`), wire a daily/weekly fetcher that reads from Drive/email/API directly.
 
 ---
 
@@ -155,10 +164,22 @@ Topic-similarity diversity (axis 3 of §2.1) waits for §2.3's index.
 1. Apply migration `009_published_posts_index.sql` in Supabase.
 2. Run `node scripts/backfill-prior-posts-index.mjs` once to seed the index from existing published drafts.
 
-### Phase 3 — Embedding upgrade + engagement loop (deferred)
+### Phase 3 — Embedding upgrade + engagement loop (partially shipped 2026-05-09)
 
-- Replace FTS with pgvector + `text-embedding-3-small` once the corpus passes ~500 posts or qualitative similarity becomes too weak.
-- Engagement feedback once LinkedIn analytics are wired (roadmap §3 prerequisite).
+| Step | File | Status |
+|---|---|---|
+| 3A. Migration 010 — extend `content_analytics` (metric_kind, url, query, clicks, position, period_start/end, idem_key) | `src/db/migrations/010_analytics_extensions.sql` | ✅ |
+| 3B. Migration 011 — non-partial idem_key unique index (ON CONFLICT compatibility) | `src/db/migrations/011_analytics_idem_index_fix.sql` | ✅ |
+| 3C. CSV importer w/ RFC-4180 parser, multi-line URL handling, idem-key dedupe + aggregation | `src/pipeline/analytics-import.js` | ✅ |
+| 3D. Ranker hints helper w/ 1h cache | `src/pipeline/analytics-feedback.js` | ✅ |
+| 3E. `POST /api/analytics/import` (CSV body or JSON) + `GET /api/analytics/hints` | `src/routes/api.js` | ✅ |
+| 3F. CLI: `npm run analytics:import gsc-folder <path>` | `scripts/import-analytics.mjs` | ✅ |
+| 3G. Ranker prompt + runner integration | `src/prompts/ranker-system.js`, `src/pipeline/ranker.js` | ✅ |
+| 3H. First GSC import + verification | content-agent Supabase | ✅ |
+| 3I. LinkedIn CSV import | importer ready; awaiting Bo's export | 🟡 |
+| 3J. Sanity-driven backfill of `published_posts_index` | new script needed | ⏳ |
+| 3K. Title/meta CTR fix loop (auto-suggest alternates for poor-CTR top-ranked pages) | new pipeline stage | ⏳ |
+| 3L. pgvector + `text-embedding-3-small` (replace FTS at ~500 posts) | `src/pipeline/prior-posts.js` | ⏳ (not yet warranted; corpus = ~17 agent + ~30 manual) |
 
 ---
 

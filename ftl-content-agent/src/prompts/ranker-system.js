@@ -48,16 +48,24 @@ Topic: "OCC reaffirms 2020 interpretive letter on stablecoin reserves"
 - engagement_potential: 5 (relevant to fintech founders but not urgent)
 Reasoning: Strong topic match but the news hook is weak — only draft if Bo can frame the operational angle.
 
+PERFORMANCE FEEDBACK (when present)
+
+The user message may include a "PERFORMANCE FEEDBACK" block summarizing recent
+LinkedIn impressions, GSC near-miss queries, and CTR-gap pages. Treat those as
+calibration anchors — the named queries indicate proven audience demand and
+the named posts indicate which framings resonate. Apply the +1 boosts described
+in the block when applicable, and keep all scores within 0-10.
+
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
-export function buildRankerUserPrompt({ topic, seoKeywords }) {
+export function buildRankerUserPrompt({ topic, seoKeywords, performanceHints = '' }) {
   return `Score this topic for publication priority.
 
 Topic:
 ${JSON.stringify(topic, null, 2)}
 
 SEO keywords:
-${seoKeywords.join(', ')}
+${seoKeywords.join(', ')}${performanceHints || ''}
 
 Return JSON:
 {
