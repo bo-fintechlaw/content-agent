@@ -15,6 +15,145 @@ import {
 export function createSlackWebhookRouter(supabase, config) {
   const router = express.Router();
 
+  // Slack slash commands (e.g., `/suggest`). Slack expects the request URL
+  // to live at /slack/commands per app config; we route by `command` field
+  // so a single endpoint can dispatch to multiple commands later.
+  router.post(
+    '/commands',
+    express.urlencoded({
+      extended: false,
+      verify: (req, _res, buf) => {
+        req.rawBody = buf.toString('utf8');
+      },
+    }),
+    async (req, res) => {
+      start('POST /slack/commands');
+      try {
+        if (!verifySlackRequest(req, config.SLACK_SIGNING_SECRET)) {
+          return res.status(401).json({ ok: false });
+        }
+        const command = String(req.body.command ?? '').trim();
+        const text = String(req.body.text ?? '').trim();
+        const userId = String(req.body.user_id ?? '').trim();
+        const responseUrl = String(req.body.response_url ?? '').trim();
+
+        if (command !== '/suggest') {
+          return res.status(200).json({
+            response_type: 'ephemeral',
+            text: `Unsupported slash command: ${command || '(empty)'}`,
+          });
+        }
+
+        if (!text) {
+          return res.status(200).json({
+            response_type: 'ephemeral',
+            text:
+              'Usage: `/suggest <url>` to suggest a story by URL, or `/suggest <free text>` to suggest a topic in plain language. The agent picks up new suggestions on the next 7 AM ET drafter cron.',
+          });
+        }
+
+        // Acknowledge immediately so Slack doesn't time out (3s budget).
+        // The actual topic insert + URL metadata fetch runs async; results
+        // post back to the same channel via response_url.
+        res.status(200).json({
+          response_type: 'ephemeral',
+          text: ':inbox_tray: Got your suggestion — processing…',
+        });
+
+        processSuggestionInBackground({
+          supabase,
+          text,
+          userId,
+          responseUrl,
+        }).catch((err) => fail('processSuggestion', err));
+      } catch (error) {
+        fail('POST /slack/commands', error);
+        try {
+          if (!res.headersSent) {
+            res
+              .status(200)
+              .json({ response_type: 'ephemeral', text: `Error: ${error.message}` });
+          }
+        } catch (sendErr) {
+          fail('POST /slack/commands:send', sendErr);
+        }
+      }
+    }
+  );
+
+  async function processSuggestionInBackground({ supabase, text, userId, responseUrl }) {
+    start('processSuggestion', { user: userId, textPreview: text.slice(0, 80) });
+
+    const url = extractFirstUrl(text);
+    let title = '';
+    let summary = '';
+    let metaSource = '';
+    if (url) {
+      const meta = await fetchUrlMeta(url).catch(() => null);
+      if (meta?.title) {
+        title = meta.title;
+        metaSource = 'fetched';
+      }
+      if (meta?.description) {
+        summary = meta.description;
+      }
+      if (!title) {
+        title = humanizeUrl(url);
+        metaSource = 'url_fallback';
+      }
+    } else {
+      // Free-text suggestion: title is the first sentence (truncated), full
+      // text becomes the summary so the drafter has the context.
+      const firstSentence = text.split(/[.!?\n]/)[0].trim();
+      title = (firstSentence || text).slice(0, 200);
+      summary = text;
+      metaSource = 'free_text';
+    }
+
+    const row = {
+      title: title.slice(0, 500),
+      source_url: url || null,
+      source_name: 'manual_suggestion',
+      summary: summary?.slice(0, 2000) || null,
+      category: 'startup',
+      relevance_score: 10.0,
+      status: 'ranked',
+      suggested_by: 'manual',
+    };
+
+    const { data, error } = await supabase
+      .from('content_topics')
+      .insert(row)
+      .select('id, title, status, source_url')
+      .single();
+
+    if (error) {
+      fail('processSuggestion:insert', error);
+      await postToSlackResponseUrl(responseUrl, {
+        response_type: 'ephemeral',
+        text: `:x: Could not save the suggestion: ${error.message}`,
+      });
+      return;
+    }
+
+    success('processSuggestion', { id: data.id, metaSource });
+
+    const lines = [
+      ':white_check_mark: Suggestion queued for the next drafter cron (7 AM ET).',
+      `*Title:* ${data.title}`,
+    ];
+    if (data.source_url) lines.push(`*URL:* ${data.source_url}`);
+    if (metaSource === 'url_fallback') {
+      lines.push(
+        '_Note: could not fetch the page title, used the URL as a fallback. Edit the topic in the dashboard if needed._'
+      );
+    }
+    await postToSlackResponseUrl(responseUrl, {
+      response_type: 'ephemeral',
+      text: lines.join('\n'),
+    });
+  }
+
   router.post(
     '/interactions',
     express.urlencoded({
@@ -242,4 +381,89 @@ async function setTopicStatusFromDraft(supabase, draftId, status) {
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', draft.topic_id);
   if (upErr) throw new Error(upErr.message);
+}
+
+function extractFirstUrl(text) {
+  // Slack auto-wraps URLs as <url|display> or <url>. Strip those wrappers
+  // first so the regex below doesn't choke on the angle brackets.
+  const unwrapped = String(text ?? '').replace(/<(https?:\/\/[^|>]+)(?:\|[^>]*)?>/g, '$1');
+  const match = unwrapped.match(/https?:\/\/[^\s)]+/);
+  if (!match) return null;
+  // Trim trailing punctuation that often follows a URL in chat ("(", ".", ",").
+  return match[0].replace(/[.,;:!?)\]'"]+$/g, '');
+}
+
+async function fetchUrlMeta(url) {
+  // Best-effort metadata pull: 5s timeout, follow redirects, give up on
+  // anything non-2xx. Parse the first <title>...</title> and the first
+  // og:description / meta description we find. The drafter prompt will
+  // re-read the URL itself when it builds the post; we're just trying
+  // to surface a meaningful title for the human reviewer to recognize.
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    const r = await fetch(url, {
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: {
+        'user-agent': 'Mozilla/5.0 (compatible; FTLContentAgent/1.0; +https://fintechlaw.ai)',
+        accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    if (!r.ok) return null;
+    const html = await r.text();
+    return parseHtmlMeta(html);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function parseHtmlMeta(html) {
+  const head = String(html).slice(0, 50_000); // cap to head + a bit
+  const titleMatch =
+    head.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+    head.match(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i) ||
+    head.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const descMatch =
+    head.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
+    head.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+  const decode = (s) =>
+    String(s ?? '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+  return {
+    title: decode(titleMatch?.[1]).slice(0, 250) || null,
+    description: decode(descMatch?.[1]).slice(0, 500) || null,
+  };
+}
+
+function humanizeUrl(url) {
+  try {
+    const u = new URL(url);
+    const slug = u.pathname.replace(/\/$/, '').split('/').filter(Boolean).pop() ?? '';
+    if (slug) {
+      return `${u.hostname}: ${slug.replace(/[-_]+/g, ' ').slice(0, 200)}`;
+    }
+    return u.hostname;
+  } catch {
+    return url.slice(0, 200);
+  }
+}
+
+async function postToSlackResponseUrl(responseUrl, body) {
+  if (!responseUrl) return;
+  try {
+    await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    fail('postToSlackResponseUrl', err);
+  }
 }
