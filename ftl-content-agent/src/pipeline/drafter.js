@@ -3,6 +3,11 @@ import { DEFAULT_SEO_KEYWORDS } from '../config/seo-keywords.js';
 import { DRAFTER_SYSTEM_PROMPT, buildDrafterUserPrompt } from '../prompts/drafter-system.js';
 import { applyDiversityPenalty, fetchRecentlyPublished } from './diversity.js';
 import { findRelatedPriorPosts } from './prior-posts.js';
+import {
+  renderResearchBriefForDrafter,
+  runResearchSubagent,
+} from './research-subagent.js';
+import { findBracketLeaksInDraft } from '../utils/bracket-leak.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -153,6 +158,21 @@ export async function runDrafting(supabase, config, options = {}) {
     }
 
     const client = createAnthropicClient(config.ANTHROPIC_API_KEY);
+
+    // Pre-draft research subagent (item #1). Surfaces authoritative dates,
+    // status, and figures so the drafter does not confabulate from stale
+    // training data. Best-effort: a failure here returns an empty brief and
+    // the drafter proceeds with the original prompt only.
+    let researchBriefText = '';
+    if (config.DISABLE_DRAFTER_RESEARCH_SUBAGENT !== 'true') {
+      try {
+        const brief = await runResearchSubagent(client, config, { topic });
+        researchBriefText = renderResearchBriefForDrafter(brief);
+      } catch (researchErr) {
+        fail('runDrafting:research', researchErr, { topicId: topic.id });
+      }
+    }
+
     let draft;
     try {
       draft = await promptJson(client, {
@@ -163,6 +183,7 @@ export async function runDrafting(supabase, config, options = {}) {
           seoKeywords: DEFAULT_SEO_KEYWORDS,
           revisionInstructions,
           relatedPriorPosts,
+          researchBrief: researchBriefText,
         }),
         maxTokens: 8000,
         temperature: 0.3,
@@ -178,6 +199,16 @@ export async function runDrafting(supabase, config, options = {}) {
         throw anthropicErr;
       }
     }
+
+    // Bracket-leak guard (item #2): if the drafter left placeholder strings
+    // like "[insert docket number]" or "[TBD]" anywhere in the output, persist
+    // them as prejudge_warning flags. The judge promotes any prejudge bracket
+    // leak to a forced REVISE while revision budget remains, with the offending
+    // substrings injected verbatim into the reviser feedback.
+    const bracketLeaks = findBracketLeaksInDraft(draft);
+    const bracketLeakFlags = bracketLeaks.map(
+      (s) => `prejudge_warning: bracket_leak: ${s}`
+    );
 
     const { data: inserted, error: insErr } = await supabase
       .from('content_drafts')
@@ -196,10 +227,17 @@ export async function runDrafting(supabase, config, options = {}) {
         x_thread: draft.x_thread ?? [],
         image_prompt: draft.image_prompt,
         revision_count: inheritedRevisionCount,
+        judge_flags: bracketLeakFlags,
       })
       .select('id, topic_id, blog_title')
       .single();
     if (insErr) throw new Error(insErr.message);
+    if (bracketLeaks.length) {
+      success('runDrafting:bracketLeak', {
+        draftId: inserted.id,
+        leaks: bracketLeaks.length,
+      });
+    }
 
     const { error: upErr } = await supabase
       .from('content_topics')

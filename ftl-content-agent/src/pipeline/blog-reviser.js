@@ -1,4 +1,5 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
+import { findBracketLeaksInDraft } from '../utils/bracket-leak.js';
 import { fail, start, success } from '../utils/logger.js';
 
 const BLOG_REVISER_SYSTEM_PROMPT = `You are Bo Howell, Managing Director of FinTech Law (fintechlaw.ai). You are revising an existing blog draft based on a single piece of human reviewer feedback.
@@ -110,18 +111,34 @@ export async function reviseBlogContent(supabase, config, draftId, feedback) {
     return section;
   });
 
-  const updates = {
+  // Bracket-leak guard on revised output: if the reviser left placeholder
+  // strings in the body it just edited, persist them as prejudge_warning
+  // flags so the next judge tick re-forces REVISE (or, if budget exhausted,
+  // surfaces the leak to the human reviewer in Slack).
+  const postReviseDraft = {
     blog_title: result.blog_title ?? draft.blog_title,
     blog_seo_title: result.blog_seo_title ?? draft.blog_seo_title,
     blog_seo_description: result.blog_seo_description ?? draft.blog_seo_description,
     blog_body: guardedBody,
+  };
+  const postReviseLeaks = findBracketLeaksInDraft(postReviseDraft);
+  const bracketLeakFlags = postReviseLeaks.map(
+    (s) => `prejudge_warning: bracket_leak: ${s}`
+  );
+
+  const updates = {
+    blog_title: postReviseDraft.blog_title,
+    blog_seo_title: postReviseDraft.blog_seo_title,
+    blog_seo_description: postReviseDraft.blog_seo_description,
+    blog_body: postReviseDraft.blog_body,
     revision_count: (draft.revision_count ?? 0) + 1,
     judge_pass: null,
     judge_scores: null,
     // Stale revision instructions and old prejudge warnings would otherwise
     // leak into the next review cycle. The next judge tick repopulates flags
-    // from a fresh evaluation of the revised body.
-    judge_flags: [],
+    // from a fresh evaluation of the revised body. Bracket-leak warnings
+    // (if the reviser left placeholders in its output) are carried forward.
+    judge_flags: bracketLeakFlags,
   };
 
   const { error: upErr } = await supabase

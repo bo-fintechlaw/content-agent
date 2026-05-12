@@ -172,6 +172,19 @@ jest.unstable_mockModule('../../utils/logger.js', () => ({
 jest.unstable_mockModule('../../integrations/anthropic.js', () => ({
   createAnthropicClient: jest.fn(() => ({})),
   promptJson: jest.fn<any>(),
+  promptWithWebSearchJson: jest.fn<any>(() => Promise.resolve({})),
+}));
+
+jest.unstable_mockModule('../../pipeline/research-subagent.js', () => ({
+  runResearchSubagent: jest.fn<any>(() =>
+    Promise.resolve({
+      facts: [],
+      primary_sources: [],
+      open_questions: [],
+      summary: '',
+    })
+  ),
+  renderResearchBriefForDrafter: jest.fn<any>(() => ''),
 }));
 
 jest.unstable_mockModule('../../integrations/slack.js', () => ({

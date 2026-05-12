@@ -105,8 +105,16 @@ SOURCING & VERIFIABLE LINKS (REQUIRED where claims are not common knowledge)
 - Do not use footnotes; links must be in the sentence flow as [text](url).
 
 PUBLICATION-READY COPY — NO INTERNAL EDITORIAL MARKUP
-- Never include bracketed internal notes: no “[Note for editorial review: …]”, “[TBD]”, “[Confirm before publish]”, “[Editor: …]”, or similar. The output is what subscribers see; there is no separate pre-publish pass in the body text.
-- If a date, citation, or number is uncertain, either verify it or remove the claim — do not leave “confirm X” in brackets.
+- Never include bracketed internal notes: no “[Note for editorial review: …]”, “[TBD]”, “[Confirm before publish]”, “[Editor: …]”, “[insert docket number]”, “[verify date]”, or any text in square brackets that is not a Markdown link label. The output is what subscribers see; there is no separate pre-publish pass in the body text.
+- If a date, citation, or number is uncertain, either verify it from the VERIFIED FACTS block or remove the claim. Never leave a placeholder. A clean sentence without the specific number is always better than a sentence with “[insert X]”.
+- The only square brackets allowed in the output are Markdown link labels of the form [text](https://url). Any other use is a bug.
+
+VERIFIED FACTS BLOCK — HOW TO USE IT
+If the user prompt contains a section titled "VERIFIED FACTS — USE THESE EXACTLY", those facts come from a web-search subagent that ran moments before this draft. They override your training-data recollection.
+- Use the exact dates, status, figures, and language from the VERIFIED FACTS block when those topics come up in your draft.
+- When you cite a verified fact, use its primary_source URL as the inline Markdown link.
+- If a fact is in "UNVERIFIED / OPEN QUESTIONS", do NOT invent a value. Either omit the claim or attribute it to the topic's source URL.
+- Do not contradict a verified fact even if your training data suggests otherwise — the subagent's source is current; yours is not.
 
 KEY TAKEAWAYS (3-5 bullets):
 - Each takeaway is a bold phrase + one sentence of elaboration
@@ -182,6 +190,7 @@ export function buildDrafterUserPrompt({
   seoKeywords,
   revisionInstructions = [],
   relatedPriorPosts = [],
+  researchBrief = '',
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const currentYear = today.slice(0, 4);
@@ -203,9 +212,12 @@ Cross-reference rules:
 - A natural reference reads like: "We examined this risk in [our prior analysis of the OCC's 2025 partner-bank guidance](...)" — connecting the two ideas. Avoid phrases like "as I wrote previously" without a substantive connection.
 `
     : '';
+  const researchBlock = researchBrief
+    ? `\n${researchBrief}\n`
+    : '';
   return `Draft content from this topic:
 ${JSON.stringify(topic, null, 2)}
-
+${researchBlock}
 TEMPORAL ANCHOR — READ FIRST:
 - Today's date is ${today}. We are in ${currentYear}.
 - Any "this week", "last week", "earlier this month", "this year" reference must be calculated from ${today} — NOT from your training-data baseline year.

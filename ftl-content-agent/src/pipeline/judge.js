@@ -11,6 +11,10 @@ import {
   deriveJudgeVerdict,
   normalizeJudgeScores,
 } from './verdict.js';
+import {
+  buildBracketLeakRevisionInstruction,
+  findBracketLeaksInDraft,
+} from '../utils/bracket-leak.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -216,6 +220,24 @@ export async function runJudging(supabase, config, options = {}) {
       verdict = 'REVISE';
     }
 
+    // Bracket-leak override (item #2): the drafter persisted prejudge_warning:
+    // bracket_leak entries when it left placeholder strings like "[insert
+    // docket number]" in the output. Detect those AND re-scan the current
+    // draft body — the model may have emitted new ones inside a section the
+    // drafter guard missed. Both routes force at least REVISE so the reviser
+    // can resolve the offending substrings precisely.
+    const bracketLeakSubstrings = findBracketLeaksInDraft(draft);
+    const bracketLeakInstruction = bracketLeakSubstrings.length
+      ? buildBracketLeakRevisionInstruction(bracketLeakSubstrings)
+      : '';
+    if (
+      bracketLeakSubstrings.length &&
+      verdict !== 'REVISE' &&
+      revisionsUsed < revisionCap
+    ) {
+      verdict = 'REVISE';
+    }
+
     const isPassing = verdict === 'PASS';
     const isRevise = verdict === 'REVISE';
 
@@ -246,12 +268,25 @@ export async function runJudging(supabase, config, options = {}) {
           c.evidence_url || 'authoritative sources'
         }: ${c.rationale}`
     );
+    const bracketLeakInstructionList = bracketLeakInstruction
+      ? [bracketLeakInstruction]
+      : [];
     const allRevisionInstructions = [
+      ...bracketLeakInstructionList,
       ...contradictedRevisionInstructions,
       ...(result.revision_instructions ?? []),
     ];
 
+    // Also surface bracket leaks to the human reviewer if we fall through to
+    // Slack (revision budget exhausted, or REVISE turned into PASS-at-cap).
+    if (bracketLeakSubstrings.length) {
+      manualVerificationNotes.push(
+        `Editorial placeholder strings remain in the draft: ${bracketLeakSubstrings.join(' | ')}`
+      );
+    }
+
     const contradictedFlag = contradictedClaims.length ? ['factually_contradicted'] : [];
+    const bracketLeakFlag = bracketLeakSubstrings.length ? ['bracket_leak'] : [];
 
     // If the surgical reviser fails inside the REVISE branch below, we capture
     // the failure note here and fall through to the Slack review block with a
@@ -405,6 +440,7 @@ export async function runJudging(supabase, config, options = {}) {
           ...prejudgeWarnings,
           ...(result.flags ?? []),
           ...contradictedFlag,
+          ...bracketLeakFlag,
           ...(surgicalRevisionFailedNote ? [surgicalRevisionFailedNote] : []),
         ],
       })
