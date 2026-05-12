@@ -56,9 +56,23 @@ export async function runSocialPosting(supabase, config, options = {}) {
 
   for (const draft of drafts ?? []) {
     const blogUrl = draft.blog_slug ? `${SITE_BASE_URL}/${draft.blog_slug}` : '';
-    const linkedinText = appendBlogLink(draft.linkedin_post ?? '', blogUrl);
-    const xText = appendBlogLink(draft.x_post ?? '', blogUrl);
-    const xThread = Array.isArray(draft.x_thread) ? draft.x_thread : [];
+    // Drafter occasionally puts fintechlaw.ai/contact in the LinkedIn ↓ CTA
+    // and X "Full analysis:" CTA — that path belongs in the blog body close,
+    // not in social where readers click expecting the article. Rewrite to the
+    // canonical blog URL before posting so the user never has to fix this in
+    // Slack after the fact. (Drafter prompt forbids /contact in social, but
+    // this is the last-line defense at post time.)
+    const linkedinText = appendBlogLink(
+      rewriteSocialCTA(draft.linkedin_post ?? '', blogUrl),
+      blogUrl
+    );
+    const xText = appendBlogLink(
+      rewriteSocialCTA(draft.x_post ?? '', blogUrl),
+      blogUrl
+    );
+    const xThread = (Array.isArray(draft.x_thread) ? draft.x_thread : []).map(
+      (t) => rewriteSocialCTA(t, blogUrl)
+    );
 
     const hasLinkedIn = !!linkedinText && !draft.linkedin_post_id;
     const hasX = !!config.ENABLE_X_POSTING && !!xText && !draft.x_post_id;
@@ -205,5 +219,16 @@ function appendBlogLink(text, blogUrl) {
   // Don't duplicate if the URL is already in the text
   if (text.includes(blogUrl)) return text;
   return `${text}\n\n${blogUrl}`;
+}
+
+// Replace any fintechlaw.ai/contact URL in social copy with the canonical
+// blog URL. The drafter's prompt forbids /contact in LinkedIn/X bodies, but
+// the model occasionally regresses; this is a deterministic last-line
+// defense at post time so the human reviewer doesn't have to catch it.
+// Matches /contact and /contact/ with optional www and either scheme.
+const CONTACT_URL_RE = /https?:\/\/(?:www\.)?fintechlaw\.ai\/contact\/?/gi;
+function rewriteSocialCTA(text, blogUrl) {
+  if (!text || !blogUrl) return text;
+  return text.replace(CONTACT_URL_RE, blogUrl);
 }
 

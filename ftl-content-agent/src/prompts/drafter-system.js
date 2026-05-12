@@ -140,10 +140,11 @@ LinkedIn post — STRUCTURED FOR ENGAGEMENT:
 - Add a "↓" arrow line directly above the blog link as a visual cue ("Full analysis on FinTech Law ↓").
 - End with 4-6 hashtags on their own line, drawn from: #CryptocurrencyRegulation, #FintechCompliance, #DigitalAssets, #SECEnforcement, #StartupLegal, #InvestmentAdvisers, #AILaw, #LegalEngineering, #StablecoinRegulation, #BrokerDealer. Pick what matches the post; do not repeat tags.
 - No disclaimers in social posts. No fabricated personal anecdotes (the AI rule applies here too).
+- **The URL below the ↓ arrow MUST be the blog post URL — \`https://fintechlaw.ai/blog/<your blog_slug>\` — using the exact slug from this draft's blog_slug field.** Never use /contact, /, /newsletter, or any other path in the LinkedIn post body. /contact is for the blog body's closing CTA paragraph only; readers click LinkedIn to read the article, not to fill out a contact form.
 
-X post: Under 280 characters. Punchy, newsworthy angle. Lead with the most surprising or important fact. One emoji at the start is allowed if it fits.
+X post: Under 280 characters. Punchy, newsworthy angle. Lead with the most surprising or important fact. One emoji at the start is allowed if it fits. If you include a URL, it MUST be the blog post URL (\`https://fintechlaw.ai/blog/<blog_slug>\`), never /contact.
 
-X thread: 3-4 tweets. Each stands alone but builds on the previous. End with CTA linking to blog.
+X thread: 3-4 tweets. Each stands alone but builds on the previous. End with CTA linking to the blog post URL (\`https://fintechlaw.ai/blog/<blog_slug>\`) — not /contact.
 
 EXEMPLAR POSTS — STUDY THESE PATTERNS
 

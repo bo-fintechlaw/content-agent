@@ -398,16 +398,21 @@ async function enforceCitationRequirements({
   // block below restates it at the end. Reviewer feedback (2026-05-02) called the
   // duplicated explicit "Primary source: Original Report" line in the intro
   // out-of-place; the judge had separately flagged it as editorial_artifact.
+  // Inline "(paywalled — verify manually)" annotations are NEVER added to the
+  // published body — reviewer feedback (2026-05-12): the article is what
+  // subscribers see, not a workflow surface. The paywall-status warning is
+  // already persisted as a judge_flag (primary_source_paywalled /
+  // secondary_source_paywalled) below and surfaces to the reviewer in the
+  // Slack review message via manualVerificationNotes — Slack is the only
+  // correct place for that notice.
   const primaryUsable = primaryVerified || primaryPaywalled;
   const citationLines = [];
   if (primaryUsable && primary) {
-    const tag = primaryPaywalled && !primaryVerified ? ' (paywalled — verify manually)' : '';
-    citationLines.push(`- **Primary source:** [Original report](${primary})${tag}`);
+    citationLines.push(`- **Primary source:** [Original report](${primary})`);
   }
   if (secondary?.finalUrl || secondary?.url) {
     const secondaryUrl = secondary.finalUrl || secondary.url;
-    const tag = !secondaryVerified && secondaryPaywalled ? ' (paywalled — verify manually)' : '';
-    citationLines.push(`- **Secondary source:** [Independent verification](${secondaryUrl})${tag}`);
+    citationLines.push(`- **Secondary source:** [Independent verification](${secondaryUrl})`);
   }
   if (citationLines.length) {
     blogBody.push({
