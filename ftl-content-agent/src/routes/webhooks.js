@@ -5,6 +5,7 @@ import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { reviseBlogContent } from '../pipeline/blog-reviser.js';
 import { runJudging } from '../pipeline/judge.js';
+import { runDrafting } from '../pipeline/drafter.js';
 import {
   createSlackClient,
   openFeedbackModal,
@@ -138,19 +139,48 @@ export function createSlackWebhookRouter(supabase, config) {
 
     success('processSuggestion', { id: data.id, metaSource });
 
-    const lines = [
-      ':white_check_mark: Suggestion queued for the next drafter cron (7 AM ET).',
+    const headerLines = [
+      ':white_check_mark: Suggestion saved.',
       `*Title:* ${data.title}`,
     ];
-    if (data.source_url) lines.push(`*URL:* ${data.source_url}`);
+    if (data.source_url) headerLines.push(`*URL:* ${data.source_url}`);
+    const blocks = [
+      { type: 'section', text: { type: 'mrkdwn', text: headerLines.join('\n') } },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Draft now' },
+            style: 'primary',
+            action_id: 'draft_topic_now',
+            value: data.id,
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Wait for next cron (7 AM ET)' },
+            action_id: 'wait_for_cron',
+            value: data.id,
+          },
+        ],
+      },
+    ];
     if (metaSource === 'url_fallback') {
-      lines.push(
-        '_Note: could not fetch the page title, used the URL as a fallback. Edit the topic in the dashboard if needed._'
-      );
+      blocks.push({
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: '_Could not fetch the page title — used the URL as a fallback. Edit later if needed._',
+          },
+        ],
+      });
     }
     await postToSlackResponseUrl(responseUrl, {
       response_type: 'ephemeral',
-      text: lines.join('\n'),
+      replace_original: true,
+      text: 'Suggestion saved — choose Draft now or wait for the next cron.',
+      blocks,
     });
   }
 
@@ -284,6 +314,55 @@ export function createSlackWebhookRouter(supabase, config) {
         } else if (actionId === 'request_changes_draft') {
           const slack = createSlackClient(config.SLACK_BOT_TOKEN);
           await openFeedbackModal(slack, payload.trigger_id, draftId);
+        } else if (actionId === 'draft_topic_now') {
+          // `value` here is a topic_id (not a draft_id) — set by the /suggest
+          // confirmation message. Kick off draft + judge async so we ack the
+          // button click inside Slack's 3s budget; the judge will post the
+          // normal review buttons to the channel when it passes.
+          const topicId = action.value;
+          const respUrl = payload.response_url;
+          if (respUrl) {
+            await postToSlackResponseUrl(respUrl, {
+              response_type: 'ephemeral',
+              replace_original: true,
+              text: ':hourglass_flowing_sand: Drafting now — review will appear in the channel shortly.',
+            });
+          }
+          (async () => {
+            try {
+              const result = await runDrafting(supabase, config, { topicId });
+              if (result?.drafted && result?.draftId) {
+                await runJudging(supabase, config, { draftId: result.draftId });
+              } else {
+                const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+                await sendStatusMessage(
+                  slack,
+                  config.SLACK_CHANNEL_ID,
+                  `:warning: Could not draft topic ${topicId}: ${result?.reason || 'unknown'}.`
+                );
+              }
+            } catch (err) {
+              fail('draft_topic_now', err, { topicId });
+              try {
+                const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+                await sendStatusMessage(
+                  slack,
+                  config.SLACK_CHANNEL_ID,
+                  `:x: Immediate draft failed: ${err?.message || 'unknown error'}.`
+                );
+              } catch (statusErr) {
+                fail('draft_topic_now:status', statusErr);
+              }
+            }
+          })();
+        } else if (actionId === 'wait_for_cron') {
+          if (payload.response_url) {
+            await postToSlackResponseUrl(payload.response_url, {
+              response_type: 'ephemeral',
+              replace_original: true,
+              text: ':alarm_clock: Queued — this topic will be drafted on the next 7 AM ET cron.',
+            });
+          }
         }
 
         success('POST /slack/interactions', { actionId, draftId });
