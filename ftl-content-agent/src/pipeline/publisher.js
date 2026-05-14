@@ -87,9 +87,14 @@ export async function publishDraftToSanity(supabase, config, draftId, options = 
     }
   }
 
-  // Trigger Netlify rebuild so the new post appears on the live site
+  // Trigger Netlify rebuild so the new post appears on the live site.
+  // Wait 10s first so apicdn.sanity.io has time to propagate the patch we
+  // just committed — otherwise the build's GROQ queries can come back with
+  // pre-patch state and ship a page missing the new asset.
+  // See: feedback_sanity_cdn_race
   if (published && config.NETLIFY_BUILD_HOOK) {
     try {
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
       await axios.post(config.NETLIFY_BUILD_HOOK);
       success('publishDraftToSanity:netlifyRebuild', { draftId });
     } catch (netlifyErr) {

@@ -301,9 +301,14 @@ export function createApiRouter(supabaseClient, config) {
         blogSlug: draft.blog_slug || 'blog',
       });
 
+      // Wait 10s before pinging Netlify so apicdn.sanity.io has propagated
+      // the patch we just committed; otherwise the build queries Sanity
+      // through the CDN and gets pre-patch state.
+      // See: feedback_sanity_cdn_race
       let netlifyTriggered = false;
       if (config.NETLIFY_BUILD_HOOK) {
         try {
+          await new Promise((resolve) => setTimeout(resolve, 10_000));
           await axios.post(config.NETLIFY_BUILD_HOOK);
           netlifyTriggered = true;
         } catch (netlifyErr) {
