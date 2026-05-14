@@ -13,6 +13,8 @@ import { runWeeklyReport } from '../pipeline/weekly-report.js';
 import { importAnalyticsCsv } from '../pipeline/analytics-import.js';
 import { clearRankerHintsCache, getRankerPerformanceHints } from '../pipeline/analytics-feedback.js';
 import { createSlackClient, sendSocialReviewMessage } from '../integrations/slack.js';
+import { createSanityClient, patchPublishedShareImage } from '../integrations/sanity.js';
+import axios from 'axios';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
 
@@ -256,6 +258,67 @@ export function createApiRouter(supabaseClient, config) {
       res.json({ ok: true, draftId, dryRun, ...result });
     } catch (error) {
       fail('GET /api/publish-now', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  // Backfill a featured image on an already-published Sanity doc. Use when the
+  // initial publish ran without XAI_API_KEY, or when image generation failed
+  // transiently (xAI hiccup, circuit breaker open, etc). Re-runs Grok Imagine
+  // with the draft's stored image_prompt and patches shareImage on the
+  // published doc, then pings the Netlify rebuild hook so the live page picks
+  // up the asset.
+  router.get('/regenerate-image', async (req, res) => {
+    start('GET /api/regenerate-image');
+    try {
+      const draftId = String(req.query.draftId ?? '').trim();
+      if (!draftId) {
+        res.status(400).json({ ok: false, error: 'Missing query param: draftId' });
+        return;
+      }
+      const { data: draft, error } = await supabaseClient
+        .from('content_drafts')
+        .select('id, sanity_document_id, image_prompt, blog_slug, blog_title')
+        .eq('id', draftId)
+        .single();
+      if (error) throw new Error(error.message);
+      if (!draft?.sanity_document_id) {
+        res.status(400).json({
+          ok: false,
+          error: 'Draft has no sanity_document_id — has it been published?',
+        });
+        return;
+      }
+      if (!draft.image_prompt?.trim()) {
+        res.status(400).json({ ok: false, error: 'Draft has no image_prompt' });
+        return;
+      }
+
+      const sanityClient = createSanityClient(config);
+      const result = await patchPublishedShareImage(sanityClient, config, {
+        publishedId: draft.sanity_document_id,
+        imagePrompt: draft.image_prompt,
+        blogSlug: draft.blog_slug || 'blog',
+      });
+
+      let netlifyTriggered = false;
+      if (config.NETLIFY_BUILD_HOOK) {
+        try {
+          await axios.post(config.NETLIFY_BUILD_HOOK);
+          netlifyTriggered = true;
+        } catch (netlifyErr) {
+          fail('GET /api/regenerate-image:netlifyRebuild', netlifyErr);
+        }
+      }
+
+      success('GET /api/regenerate-image', {
+        draftId,
+        publishedId: result.publishedId,
+        netlifyTriggered,
+      });
+      res.json({ ok: true, draftId, ...result, netlifyTriggered });
+    } catch (error) {
+      fail('GET /api/regenerate-image', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });
