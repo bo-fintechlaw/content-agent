@@ -306,11 +306,31 @@ export function createSlackWebhookRouter(supabase, config) {
             .from('content_drafts')
             .update({ social_approved: false })
             .eq('id', draftId);
+          try {
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendStatusMessage(
+              slack,
+              config.SLACK_CHANNEL_ID,
+              ':x: Social rejected — will not post.'
+            );
+          } catch (slackErr) {
+            fail('rejectSocialAck', slackErr, { draftId });
+          }
         } else if (actionId === 'request_changes_social') {
           const slack = createSlackClient(config.SLACK_BOT_TOKEN);
           await openFeedbackModal(slack, payload.trigger_id, draftId, 'social');
         } else if (actionId === 'reject_draft') {
           await setTopicStatusFromDraft(supabase, draftId, 'rejected');
+          try {
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendStatusMessage(
+              slack,
+              config.SLACK_CHANNEL_ID,
+              ':x: Draft rejected — topic moved to rejected status; no further action will be taken.'
+            );
+          } catch (slackErr) {
+            fail('rejectDraftAck', slackErr, { draftId });
+          }
         } else if (actionId === 'request_changes_draft') {
           const slack = createSlackClient(config.SLACK_BOT_TOKEN);
           await openFeedbackModal(slack, payload.trigger_id, draftId);
@@ -395,6 +415,19 @@ async function handleViewSubmission(supabase, config, payload, res) {
     // Respond to Slack immediately, then process async
     res.status(200).json({ response_action: 'clear' });
 
+    // Ack into the channel so the reviewer sees the system received their
+    // instructions before the social reviser finishes (which can take 20-60s).
+    try {
+      const ackSlack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendStatusMessage(
+        ackSlack,
+        config.SLACK_CHANNEL_ID,
+        `:hourglass_flowing_sand: Social feedback received — regenerating posts… (\`${feedback.trim().slice(0, 140)}\`)`
+      );
+    } catch (slackErr) {
+      fail('handleViewSubmission:social:ack', slackErr, { draftId });
+    }
+
     try {
       const revised = await reviseSocialContent(supabase, config, draftId, feedback.trim());
 
@@ -410,6 +443,16 @@ async function handleViewSubmission(supabase, config, payload, res) {
       success('handleViewSubmission:social', { draftId, feedback: feedback.slice(0, 100) });
     } catch (error) {
       fail('handleViewSubmission:social', error);
+      try {
+        const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+        await sendStatusMessage(
+          slack,
+          config.SLACK_CHANNEL_ID,
+          `:x: Social revision failed: ${error?.message || 'unknown error'}.`
+        );
+      } catch (statusErr) {
+        fail('handleViewSubmission:social:failMsg', statusErr, { draftId });
+      }
     }
     return;
   }
@@ -421,6 +464,19 @@ async function handleViewSubmission(supabase, config, payload, res) {
   // cron does NOT pick it up for a full redraft.
   res.status(200).json({ response_action: 'clear' });
 
+  // Ack into the channel so the reviewer sees the system received their
+  // feedback before the surgical reviser + judge cycle finishes (1-3 min).
+  try {
+    const ackSlack = createSlackClient(config.SLACK_BOT_TOKEN);
+    await sendStatusMessage(
+      ackSlack,
+      config.SLACK_CHANNEL_ID,
+      `:hourglass_flowing_sand: Feedback received — applying surgical revision and re-judging… (\`${feedback.trim().slice(0, 140)}\`)`
+    );
+  } catch (slackErr) {
+    fail('handleViewSubmission:blog:ack', slackErr, { draftId });
+  }
+
   try {
     await reviseBlogContent(supabase, config, draftId, feedback.trim());
     await runJudging(supabase, config, { draftId });
@@ -430,6 +486,16 @@ async function handleViewSubmission(supabase, config, payload, res) {
     });
   } catch (error) {
     fail('handleViewSubmission:blog', error, { draftId });
+    try {
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendStatusMessage(
+        slack,
+        config.SLACK_CHANNEL_ID,
+        `:x: Revision failed: ${error?.message || 'unknown error'}. The original draft is still in \`review\` — try again or use the buttons above.`
+      );
+    } catch (statusErr) {
+      fail('handleViewSubmission:blog:failMsg', statusErr, { draftId });
+    }
   }
   return;
 }
