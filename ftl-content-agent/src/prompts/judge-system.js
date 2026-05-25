@@ -46,6 +46,26 @@ SCORING RUBRIC (0-10 scale per criterion)
 - 6-7: Missing sections or wrong order
 - Below 6: No recognizable structure
 
+JOURNALIST-DISCIPLINE CHECKS — INDEPENDENT OF THE 5 SCORES ABOVE
+
+The drafter declares three editorial-discipline fields BEFORE writing the body:
+- \`angle\` — one specific, unusual angle or counter-intuitive fact from the source
+- \`secondary_lens\` — the analytical lens chosen from a curated 20-item list
+- \`facts_from_source\` — 2-5 verbatim facts (with source URLs) that must appear in the body
+
+When an EDITORIAL_META section is present in the user prompt, you MUST run these checks IN ADDITION TO the 5 scores above:
+
+NEGATIVE TOPIC CONSTRAINT (hard check):
+If the blog body devotes a section — or substantial part of a section — to terms of service, privacy policy, or money transmitter regulation AND the source material's central focus is NOT one of those topics, this is a drift failure. Add a "topic_drift" flag to flags, write a SPECIFIC revision_instruction naming the offending section header and telling the drafter to delete it and replace with a section that pursues the declared \`angle\` instead. Drift does not affect the 5 numeric scores — it surfaces through the flag and the verdict override the pipeline applies.
+
+ANGLE CHECK (folds into ENGAGEMENT):
+- If the body does not actually pursue the declared \`angle\` by paragraph 2 of the opening, deduct 2 from ENGAGEMENT.
+- If the declared \`secondary_lens\` is not the dominant analytical frame in at least one body section, deduct 1 from ENGAGEMENT.
+- In both cases, add a "angle_drift" or "lens_drift" flag and a specific revision_instruction.
+
+FACTS-IN-BODY CHECK (folds into ACCURACY):
+For each entry in \`facts_from_source\`, search the body for the fact (verbatim or near-verbatim — date, dollar amount, named party, rule number, etc.). For each fact that does NOT appear in the body, deduct 1 from ACCURACY and add a "missing_facts_in_body" flag with a revision_instruction listing the specific missing fact. Cap the accuracy deduction at -3.
+
 REVISION INSTRUCTIONS — THE MOST IMPORTANT THING YOU PRODUCE
 
 Whenever any score falls below 8, write a specific, surgical instruction the drafter can act on. Quote the exact text that is weak and state precisely what to change.
@@ -55,7 +75,7 @@ GOOD (specific, actionable): "Move the $150,000 penalty to sentence 1. Replace '
 
 Return strict JSON only — no markdown fences, no commentary outside the JSON object.`;
 
-export function buildJudgeUserPrompt({ draft, linkContext = null }) {
+export function buildJudgeUserPrompt({ draft, linkContext = null, editorialMeta = null }) {
   const hasLinkContext =
     linkContext && (linkContext.fetches?.length || linkContext.subagent);
   const hasClaimContext =
@@ -84,6 +104,18 @@ If any assessment has verdict "contradicted", you MUST lower accuracy to 4 or be
 `
     : '';
 
+  const editorialBlock = editorialMeta
+    ? `
+EDITORIAL_META (drafter-declared journalist-discipline fields — verify the body lives up to them):
+${JSON.stringify(editorialMeta, null, 2)}
+
+Apply the journalist-discipline checks from the system prompt:
+- NEGATIVE TOPIC CONSTRAINT: flag "topic_drift" if a body section is about ToS/privacy/MTL when the source's central focus is not one of those topics.
+- ANGLE CHECK: flag "angle_drift" or "lens_drift" with engagement deductions if the body does not pursue the declared angle/lens.
+- FACTS-IN-BODY: flag "missing_facts_in_body" with accuracy deductions for each fact in facts_from_source that does not appear in the body (verbatim or near-verbatim).
+`
+    : '';
+
   const today = new Date().toISOString().slice(0, 10);
   return `Evaluate this draft for FinTech Law LLC's content pipeline.
 
@@ -93,7 +125,7 @@ CITATION POLICY YOU MUST APPLY:
 - A primary source returning HTTP 401/403/410/451 is **paywalled or bot-blocked, not broken**. Do NOT lower accuracy or list it in revision_instructions for being "inaccessible". The pipeline already surfaces a manual-verify warning for these.
 - A draft URL on https://fintechlaw.ai/blog/<slug> is the **future permalink of this post** — it 404s pre-publish by design. Ignore any HTTP_FETCHES result for fintechlaw.ai/blog/* URLs. Do NOT flag them as broken or list them in revision_instructions.
 - A "broken citation" worth flagging is a third-party source URL (gov, court, news, regulator) returning a true 404 with no paywall — that is a real drafter hallucination and accuracy must drop.
-${linkBlock}${claimBlock}
+${linkBlock}${claimBlock}${editorialBlock}
 Blog title: ${draft.blog_title ?? '(missing)'}
 
 Blog body:
@@ -130,6 +162,7 @@ Rules:
 - DO NOT include a "composite" or "verdict" field. The pipeline computes both from your per-criterion scores.
 - revision_instructions must be SPECIFIC: quote the text, say what to change.
 - Flag banned phrases: "navigate the complex landscape", "it is important to note", "at the end of the day", "moving forward", "leverage" as verb, any contractions
+- If EDITORIAL_META was provided, include any applicable "topic_drift", "angle_drift", "lens_drift", or "missing_facts_in_body" flags in flags[] with specific revision_instructions citing the offending section header or the missing fact.
 - CRITICAL: Flag any fabricated personal experiences — "every founder I talked to", "a client asked me", "in my conversations with", "someone told me". The drafter is an AI and must never invent firsthand anecdotes. Score voice below 6 if this is present.
 - PUBLICATION READINESS: If the blog body contains internal editorial bracket notes like "[Note for ...]", "[Editorial", "[TBD", "[Confirm before publish", "TODO:" for future editing, or similar, lower structure to 6 or below and add a revision instruction to remove or resolve them. Flag as "editorial_bracket_leak".
 - SOURCING: For non-obvious regulatory, case, or date claims, the draft should include at least some inline [text](https://url) links to official or primary materials. If a section makes specific factual claims with zero verifiable links where links are readily available, lower accuracy or structure and add a revision instruction to add 1-2 inline source links. Flag "thin_sourcing" when appropriate.

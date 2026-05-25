@@ -22,7 +22,47 @@ const BlogSectionSchema = z.object({
   has_background: z.boolean().optional().default(false),
 });
 
+/**
+ * Curated set of secondary lenses the drafter must pick exactly one from.
+ * Each lens is an analytical frame — the drafter picks the one that best
+ * surfaces the unusual angle in the source material instead of defaulting
+ * every blog to a money-transmitter / ToS / privacy framing.
+ *
+ * Shared between the Zod schema (enum enforcement) and the drafter user
+ * prompt (renders the list of choices) — single source of truth.
+ */
+export const LENS_LIST = /** @type {const} */ ([
+  'capital formation',
+  'fund formation',
+  'RIA compliance',
+  'broker-dealer compliance',
+  'AI governance',
+  'AI in legal practice',
+  'AI in financial services',
+  'data/model provenance',
+  'consumer protection',
+  'payments rail risk',
+  'crypto market structure',
+  'stablecoin reserves',
+  'tokenization of RWAs',
+  'venture/PE structuring',
+  'LP-GP economics',
+  'fiduciary duty',
+  'cybersecurity disclosure',
+  'cross-border regulatory arbitrage',
+  'enforcement signal-reading',
+  'rulemaking-process mechanics',
+]);
+
+const FactFromSourceSchema = z.object({
+  fact: z.string().min(5),
+  source_url: z.string().url(),
+});
+
 export const DrafterResponseSchema = z.object({
+  angle: z.string().min(20),
+  secondary_lens: z.enum(LENS_LIST),
+  facts_from_source: z.array(FactFromSourceSchema).min(2).max(5),
   blog_title: z.string().min(1),
   blog_slug: z.string().min(1),
   blog_body: z.array(BlogSectionSchema).min(1),

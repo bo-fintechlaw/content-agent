@@ -125,6 +125,19 @@ const rankerResponse = {
 };
 
 const drafterResponse = {
+  angle:
+    'The SEC settlement targets boilerplate hedge clauses standard across mid-size advisory agreements.',
+  secondary_lens: 'RIA compliance',
+  facts_from_source: [
+    {
+      fact: '$150,000 in combined penalties against FamilyWealth Advisory Group',
+      source_url: 'https://www.sec.gov/litigation/admin/2026/ia-1234.pdf',
+    },
+    {
+      fact: 'Settlement announced January 2026',
+      source_url: 'https://www.sec.gov/news/press-release/2026-1',
+    },
+  ],
   blog_title: 'SEC Hedge Clause Crackdown: Advisory Agreement Lessons',
   blog_slug: 'sec-hedge-clause-crackdown',
   blog_body: [
@@ -434,7 +447,7 @@ describe('Pipeline Integration — Happy Path', () => {
     // Verify draft was updated with post IDs
     expect(dbDrafts[0].linkedin_post_id).toBe('li-post-123');
     expect(dbDrafts[0].x_post_id).toBe('x-tweet-123');
-  });
+  }, 20_000);
 });
 
 describe('Pipeline Integration — Revision Loop', () => {

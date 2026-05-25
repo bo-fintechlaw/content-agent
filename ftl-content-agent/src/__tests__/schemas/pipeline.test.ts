@@ -4,6 +4,7 @@ const {
   RankerResponseSchema,
   DrafterResponseSchema,
   JudgeResponseSchema,
+  LENS_LIST,
   validateResponse,
 } = await import('../../schemas/pipeline.js');
 
@@ -61,6 +62,19 @@ describe('RankerResponseSchema', () => {
 // --- Drafter Schema ---
 describe('DrafterResponseSchema', () => {
   const validDrafter = {
+    angle:
+      'The SEC settlement targets boilerplate hedge clause language found in roughly 40% of mid-size advisory agreements.',
+    secondary_lens: 'RIA compliance',
+    facts_from_source: [
+      {
+        fact: '$150,000 in combined penalties against FamilyWealth Advisory Group',
+        source_url: 'https://www.sec.gov/litigation/admin/2026/ia-1234.pdf',
+      },
+      {
+        fact: 'Settlement announced January 2026',
+        source_url: 'https://www.sec.gov/news/press-release/2026-1',
+      },
+    ],
     blog_title: 'SEC Issues $150K Wake-Up Call: Advisory Agreement Lessons',
     blog_slug: 'sec-advisory-agreement-lessons',
     blog_body: [
@@ -135,6 +149,53 @@ describe('DrafterResponseSchema', () => {
     if (result.success) {
       expect(result.data.blog_body[0].has_background).toBe(false);
     }
+  });
+
+  it('rejects missing angle', () => {
+    const { angle, ...noAngle } = validDrafter;
+    const result = DrafterResponseSchema.safeParse(noAngle);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects angle shorter than 20 chars', () => {
+    const bad = { ...validDrafter, angle: 'too short' };
+    const result = DrafterResponseSchema.safeParse(bad);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects secondary_lens not in the curated LENS_LIST', () => {
+    const bad = { ...validDrafter, secondary_lens: 'made-up lens' };
+    const result = DrafterResponseSchema.safeParse(bad);
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts every value in LENS_LIST as a valid secondary_lens', () => {
+    for (const lens of LENS_LIST) {
+      const ok = { ...validDrafter, secondary_lens: lens };
+      const result = DrafterResponseSchema.safeParse(ok);
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('rejects facts_from_source with fewer than 2 entries', () => {
+    const bad = {
+      ...validDrafter,
+      facts_from_source: [validDrafter.facts_from_source[0]],
+    };
+    const result = DrafterResponseSchema.safeParse(bad);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects facts_from_source entries with non-URL source_url', () => {
+    const bad = {
+      ...validDrafter,
+      facts_from_source: [
+        { fact: 'Some fact here', source_url: 'not a url' },
+        { fact: 'Another fact', source_url: 'https://valid.example.com' },
+      ],
+    };
+    const result = DrafterResponseSchema.safeParse(bad);
+    expect(result.success).toBe(false);
   });
 });
 

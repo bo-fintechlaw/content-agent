@@ -12,6 +12,24 @@ const parser = new Parser({
   },
 });
 
+// 7-day window captures everything published since the last successful daily
+// scan and still gracefully covers a missed run or two. Dedupe on source_url
+// in content_topics keeps repeats out — the window is a cap, not a cursor.
+const DEFAULT_WINDOW_HOURS = 168;
+const DEFAULT_ITEMS_PER_FEED = 25;
+
+function windowHoursFromEnv() {
+  const raw = process.env.SCAN_WINDOW_HOURS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_WINDOW_HOURS;
+}
+
+function itemsPerFeedFromEnv() {
+  const raw = process.env.SCAN_ITEMS_PER_FEED;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_ITEMS_PER_FEED;
+}
+
 /**
  * Stage 1: fetch configured RSS feeds, dedupe by `source_url`, insert new rows into `content_topics`.
  *
@@ -48,15 +66,16 @@ export async function runSourceScan(supabase) {
       stats.feedsProcessed++;
       const allItems = feed.items ?? [];
 
-      // Limit to 10 most recent items per feed, published within last 48 hours
-      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const windowHours = windowHoursFromEnv();
+      const itemCap = itemsPerFeedFromEnv();
+      const cutoff = new Date(Date.now() - windowHours * 60 * 60 * 1000);
       const items = allItems
         .filter((item) => {
           const pubDate = item.pubDate || item.isoDate;
           if (!pubDate) return true; // include items without dates
           return new Date(pubDate) >= cutoff;
         })
-        .slice(0, 10);
+        .slice(0, itemCap);
 
       for (const item of items) {
         const sourceUrl = normalizeUrl(itemLink(item));

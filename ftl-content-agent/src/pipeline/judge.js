@@ -115,12 +115,14 @@ export async function runJudging(supabase, config, options = {}) {
       : null;
     const linkContext = { fetches: linkFetches, subagent, claimVerification: judgeClaimContext };
 
+    const editorialMeta = draft.editorial_meta ?? null;
+
     let result;
     try {
       result = await promptJson(client, {
         model: config.ANTHROPIC_MODEL,
         system: JUDGE_SYSTEM_PROMPT,
-        user: buildJudgeUserPrompt({ draft, linkContext }),
+        user: buildJudgeUserPrompt({ draft, linkContext, editorialMeta }),
         maxTokens: 3_200,
         temperature: 0.1,
       });
@@ -232,6 +234,42 @@ export async function runJudging(supabase, config, options = {}) {
       : '';
     if (
       bracketLeakSubstrings.length &&
+      verdict !== 'REVISE' &&
+      revisionsUsed < revisionCap
+    ) {
+      verdict = 'REVISE';
+    }
+
+    // Editorial-discipline override: if the judge emitted any topic_drift /
+    // angle_drift / lens_drift / missing_facts_in_body flag and revision
+    // budget remains, force REVISE. Same pattern as bracket_leak /
+    // contradicted_claims above — keep generic compliance padding and
+    // declared-angle drift from sneaking past a passing composite score.
+    const judgeFlagsLower = (Array.isArray(result?.flags) ? result.flags : [])
+      .map((f) => String(f ?? '').toLowerCase());
+    const editorialDriftDetected = judgeFlagsLower.some(
+      (f) =>
+        f.includes('topic_drift') ||
+        f.includes('angle_drift') ||
+        f.includes('lens_drift') ||
+        f.includes('missing_facts_in_body')
+    );
+    if (
+      editorialDriftDetected &&
+      verdict !== 'REVISE' &&
+      revisionsUsed < revisionCap
+    ) {
+      verdict = 'REVISE';
+    }
+
+    // Also force REVISE if the drafter persisted a prejudge_warning saying
+    // the editorial-discipline metadata itself was missing or malformed —
+    // we want a clean re-draft with the angle/lens/facts populated before
+    // the post can ship.
+    const editorialMetaPrejudge = (Array.isArray(draft.judge_flags) ? draft.judge_flags : [])
+      .some((f) => typeof f === 'string' && f.startsWith('prejudge_warning: editorial_meta:'));
+    if (
+      editorialMetaPrejudge &&
       verdict !== 'REVISE' &&
       revisionsUsed < revisionCap
     ) {

@@ -1,6 +1,7 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
-import { DEFAULT_SEO_KEYWORDS } from '../config/seo-keywords.js';
+import { getKeywordsForCategory } from '../config/seo-keywords.js';
 import { DRAFTER_SYSTEM_PROMPT, buildDrafterUserPrompt } from '../prompts/drafter-system.js';
+import { LENS_LIST } from '../schemas/pipeline.js';
 import { applyDiversityPenalty, fetchRecentlyPublished } from './diversity.js';
 import { findRelatedPriorPosts } from './prior-posts.js';
 import {
@@ -180,10 +181,11 @@ export async function runDrafting(supabase, config, options = {}) {
         system: DRAFTER_SYSTEM_PROMPT,
         user: buildDrafterUserPrompt({
           topic,
-          seoKeywords: DEFAULT_SEO_KEYWORDS,
+          seoKeywords: getKeywordsForCategory(topic.category),
           revisionInstructions,
           relatedPriorPosts,
           researchBrief: researchBriefText,
+          lensList: LENS_LIST,
         }),
         maxTokens: 8000,
         temperature: 0.3,
@@ -210,6 +212,17 @@ export async function runDrafting(supabase, config, options = {}) {
       (s) => `prejudge_warning: bracket_leak: ${s}`
     );
 
+    // Journalist-discipline metadata: angle, secondary lens, and 2-5 verbatim
+    // facts from the source. Stored separately in editorial_meta so the judge
+    // can verify the body actually pursues the declared angle and includes
+    // each declared fact. If the model omits a field, raise a prejudge_warning
+    // so the judge forces a REVISE.
+    const editorialMeta = buildEditorialMeta(draft);
+    const editorialWarnings = validateEditorialMeta(editorialMeta);
+    const editorialMetaFlags = editorialWarnings.map(
+      (w) => `prejudge_warning: editorial_meta: ${w}`
+    );
+
     const { data: inserted, error: insErr } = await supabase
       .from('content_drafts')
       .insert({
@@ -227,7 +240,8 @@ export async function runDrafting(supabase, config, options = {}) {
         x_thread: draft.x_thread ?? [],
         image_prompt: draft.image_prompt,
         revision_count: inheritedRevisionCount,
-        judge_flags: bracketLeakFlags,
+        judge_flags: [...bracketLeakFlags, ...editorialMetaFlags],
+        editorial_meta: editorialMeta,
       })
       .select('id, topic_id, blog_title')
       .single();
@@ -266,6 +280,14 @@ function buildSimpleFallbackDraft({ topic }) {
     `Disclaimer: This draft is generated automatically and is for informational purposes only; it is not legal advice.`;
 
   return {
+    angle: `Fallback summary of ${topic.title} (Anthropic unavailable — human review required before publish).`,
+    secondary_lens: 'enforcement signal-reading',
+    facts_from_source: [
+      {
+        fact: String(topic.summary ?? topic.title ?? '').slice(0, 400) || String(topic.title ?? 'See source URL'),
+        source_url: String(topic.source_url ?? 'https://fintechlaw.ai'),
+      },
+    ],
     blog_title: title,
     blog_slug: slug || `topic-${topic.id}`,
     blog_body: [
@@ -285,4 +307,47 @@ function buildSimpleFallbackDraft({ topic }) {
     x_post: `FinTech Law Focus: ${topic.title}`,
     x_thread: [],
   };
+}
+
+/**
+ * Extract the journalist-discipline metadata from the LLM's drafter output.
+ * Returns null if none of the three fields is present, so we don't write an
+ * empty object to editorial_meta. Otherwise returns a normalized object that
+ * tolerates partially missing fields — validateEditorialMeta surfaces the
+ * gaps as prejudge_warning flags.
+ */
+function buildEditorialMeta(draft) {
+  const angle = typeof draft?.angle === 'string' ? draft.angle.trim() : '';
+  const lens = typeof draft?.secondary_lens === 'string' ? draft.secondary_lens.trim() : '';
+  const rawFacts = Array.isArray(draft?.facts_from_source) ? draft.facts_from_source : [];
+  const facts = rawFacts
+    .map((f) => ({
+      fact: typeof f?.fact === 'string' ? f.fact.trim() : '',
+      source_url: typeof f?.source_url === 'string' ? f.source_url.trim() : '',
+    }))
+    .filter((f) => f.fact && f.source_url);
+
+  if (!angle && !lens && facts.length === 0) return null;
+  return { angle, secondary_lens: lens, facts_from_source: facts };
+}
+
+function validateEditorialMeta(meta) {
+  if (!meta) {
+    return [
+      'missing all editorial fields (angle, secondary_lens, facts_from_source)',
+    ];
+  }
+  const warnings = [];
+  if (!meta.angle || meta.angle.length < 20) {
+    warnings.push('angle missing or shorter than 20 chars');
+  }
+  if (!meta.secondary_lens) {
+    warnings.push('secondary_lens missing');
+  }
+  if (!Array.isArray(meta.facts_from_source) || meta.facts_from_source.length < 2) {
+    warnings.push(
+      `facts_from_source has ${meta.facts_from_source?.length ?? 0} entries; need at least 2`
+    );
+  }
+  return warnings;
 }
