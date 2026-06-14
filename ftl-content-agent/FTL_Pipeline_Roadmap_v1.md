@@ -139,10 +139,10 @@ Documented in `INTERFACE.md`:
 - Friday 4 PM ET (biweekly): `CMO_ASSEMBLE_URL` when `ENABLE_NEWSLETTER=true`
 - Resend webhooks → `issue_metrics`
 
-### 3.9 Fleet repos (copy from `fleet/`)
+### 3.9 Fleet repos
 
-- `fleet/ftl-cmo-agent/` — CMO newsletter slice
-- `fleet/ftl-agent-core/` — delegation, actions, Slack cards, autonomy ceilings
+- `bo-fintechlaw/ftl-cmo-agent` — CMO newsletter slice (standalone repo)
+- `~/ftl-agent-core` — delegation, actions, Slack cards, autonomy ceilings
 - `fleet/fintechlegal_website/` — site track
 
 Ship behind `ENABLE_NEWSLETTER=false` until first shadow issue clears Bo review.

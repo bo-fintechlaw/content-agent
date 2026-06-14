@@ -16,7 +16,7 @@ const root = path.join(__dirname, '..');
 const files = [
   'src/db/migrations/015_newsletter_domain.sql',
   'src/db/migrations/016_newsletter_rls.sql',
-  'fleet/ftl-agent-core/migrations/016_newsletter_action_kinds.sql',
+  '../../../ftl-agent-core/migrations/0005_newsletter_action_kinds.sql',
 ];
 
 for (const rel of files) {

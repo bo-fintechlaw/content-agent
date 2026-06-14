@@ -2,8 +2,8 @@
 
 Repos synced to workspace root for local development:
 
-- `/workspace/ftl-agent-core` — from `fleet/ftl-agent-core`
-- `/workspace/ftl-cmo-agent` — from `fleet/ftl-cmo-agent`
+- `/workspace/ftl-agent-core` — canonical repo at `~/ftl-agent-core` (no longer vendored under `fleet/`)
+- `/workspace/ftl-cmo-agent` — standalone repo at `~/ftl-cmo-agent` (https://github.com/bo-fintechlaw/ftl-cmo-agent)
 - `/workspace/fintechlegal_website` — from `fleet/fintechlegal_website`
 
 Sample Zoho CSV: `data/zoho-subscribers.sample.csv`
