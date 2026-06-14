@@ -271,7 +271,7 @@ Estimated 4-6 hours and adds a meaningful new failure surface (Gmail auth expira
 | 5 | LinkedIn CSV import (first run) — populates ranker hints w/ post performance | ~0.5 | ⏳ awaiting Bo's export |
 | 6 | Sanity-driven backfill of `published_posts_index` (covers pre-agent blogs) | ~2 | ⏳ unblocks GSC page→draft attribution |
 | 7 | Slack `/suggest` command | ~3 | ⏳ next planned build |
-| 8 | Newsletter module (behind `ENABLE_NEWSLETTER=false` flag) | ~16 | ⏳ after #7 |
+| 8 | Newsletter module (CMO assembles → content-agent renders; Resend + fleet Supabase) | ~16 | ⏳ in progress |
 | 9 | First newsletter issue (manually triggered, full review cycle) | ~2 | ⏳ after #8 |
 | 10 | Newsletter cron auto-runs biweekly | — | ⏳ after #9 |
 | 11 | Title/meta CTR fix loop for poor-CTR top-ranked pages | ~4 | ⏳ defer until ≥2 weeks of imported data |

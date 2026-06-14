@@ -67,6 +67,14 @@ const OPTIONAL_STRING = [
   'NOTION_DB_REGULATORY_TRACKER',
   'NOTION_DB_ACTIVITY_LOG',
   'APP_BASE_URL',
+  'RESEND_API_KEY',
+  'RESEND_AUDIENCE_ID',
+  'RESEND_FROM_EMAIL',
+  'NEWSLETTER_TEST_EMAIL',
+  'NEWSLETTER_TASK_SECRET',
+  'SLACK_CMO_BO_CHANNEL_ID',
+  'ENABLE_NEWSLETTER',
+  'CMO_ASSEMBLE_URL',
 ];
 
 /**
@@ -230,6 +238,21 @@ export function validateEnv() {
     enableXPostingRaw === ''
       ? false
       : ['1', 'true', 'yes', 'y'].includes(String(enableXPostingRaw).toLowerCase());
+
+  config.RESEND_API_KEY = (optional.RESEND_API_KEY ?? '').trim();
+  config.RESEND_AUDIENCE_ID = (optional.RESEND_AUDIENCE_ID ?? '').trim();
+  config.RESEND_FROM_EMAIL =
+    (optional.RESEND_FROM_EMAIL ?? '').trim() || 'FinTech Law <newsletter@fintechlaw.ai>';
+  config.NEWSLETTER_TEST_EMAIL = (optional.NEWSLETTER_TEST_EMAIL ?? '').trim();
+  config.NEWSLETTER_TASK_SECRET = (optional.NEWSLETTER_TASK_SECRET ?? '').trim();
+  config.SLACK_CMO_BO_CHANNEL_ID =
+    (optional.SLACK_CMO_BO_CHANNEL_ID ?? '').trim() || 'C0BB9U7AN0Y';
+  const enableNewsletterRaw = optional.ENABLE_NEWSLETTER;
+  config.ENABLE_NEWSLETTER =
+    enableNewsletterRaw === ''
+      ? false
+      : ['1', 'true', 'yes', 'y'].includes(String(enableNewsletterRaw).toLowerCase());
+  config.CMO_ASSEMBLE_URL = (optional.CMO_ASSEMBLE_URL ?? '').trim();
 
   success('validateEnv', { port, nodeEnv });
   return config;
