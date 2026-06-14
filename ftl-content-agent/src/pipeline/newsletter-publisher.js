@@ -5,6 +5,8 @@ import {
   buildNewsletterEmailText,
 } from '../emails/newsletter-issue-html.js';
 import { parseIssueJson } from '../schemas/newsletter.js';
+import { buildNewsletterSanityDocument } from './newsletter-renderer.js';
+import { renderNewsletterCarousel } from '../integrations/newsletter-carousel.js';
 import { postLinkedInUgc } from '../integrations/linkedin.js';
 import { postXTweet } from '../integrations/x.js';
 import { fail, start, success } from '../utils/logger.js';
@@ -39,6 +41,10 @@ export async function publishNewsletterIssue(supabase, config, input) {
   if (config.SANITY_PROJECT_ID && config.SANITY_API_TOKEN) {
     const client = createSanityClient(config);
     const draftId = row.sanity_document_id || `drafts.newsletter-${issue.slug}`;
+    if (!row.sanity_document_id) {
+      const doc = buildNewsletterSanityDocument(issue);
+      await client.createOrReplace({ ...doc, _id: draftId });
+    }
     try {
       await client.action({
         actionType: 'sanity.action.document.publish',
@@ -49,6 +55,16 @@ export async function publishNewsletterIssue(supabase, config, input) {
     } catch (pubErr) {
       fail('publishNewsletterIssue:sanity', pubErr);
       throw pubErr;
+    }
+  }
+
+  let carouselUrls = row.carousel_urls ?? [];
+  if (!carouselUrls.length) {
+    try {
+      const carousel = await renderNewsletterCarousel(issue);
+      carouselUrls = carousel.urls;
+    } catch (carouselErr) {
+      fail('publishNewsletterIssue:carousel', carouselErr, { slug: issue.slug });
     }
   }
 
@@ -112,6 +128,8 @@ export async function publishNewsletterIssue(supabase, config, input) {
       published_at: nowIso,
       sanity_document_id: sanityPublishedId,
       resend_broadcast_id: resendBroadcastId,
+      web_preview_url: archiveUrl,
+      carousel_urls: carouselUrls,
       updated_at: nowIso,
     })
     .eq('id', input.issueId);

@@ -1,4 +1,3 @@
-import { createSanityClient } from '../integrations/sanity.js';
 import { createResendClient, sendNewsletterEmail } from '../integrations/resend.js';
 import {
   buildNewsletterEmailHtml,
@@ -7,8 +6,8 @@ import {
 import { parseIssueJson } from '../schemas/newsletter.js';
 import { lintNewsletterIssue } from '../utils/newsletter-compliance-linter.js';
 import { verifyNewsletterBlogLinks } from '../utils/newsletter-link-verifier.js';
-import { renderNewsletterCarousel } from '../integrations/newsletter-carousel.js';
-import { fail, start, success } from '../utils/logger.js';
+import { newsletterIssuePreviewUrl } from '../utils/newsletter-preview-url.js';
+import { start, success } from '../utils/logger.js';
 
 const PUBLIC_SITE = 'https://fintechlaw.ai';
 
@@ -55,22 +54,16 @@ export async function renderNewsletterIssue(supabase, config, input) {
   }
 
   const archiveUrl = `${PUBLIC_SITE}/newsletter/${issue.slug}`;
-  const webPreviewUrl = archiveUrl;
 
+  // Draft review uses content-agent HTML preview — not the public archive URL.
   let sanityDocumentId = null;
-  if (config.SANITY_PROJECT_ID && config.SANITY_API_TOKEN) {
-    const client = createSanityClient(config);
-    const doc = buildNewsletterSanityDocument(issue);
-    const draftId = `drafts.newsletter-${issue.slug}`;
-    const created = await client.createOrReplace({ ...doc, _id: draftId });
-    sanityDocumentId = created?._id ?? draftId;
-  }
 
   let emailTestId = null;
   if (config.RESEND_API_KEY && config.NEWSLETTER_TEST_EMAIL) {
+    const previewPlaceholder = '[preview link in Slack]';
     const resend = createResendClient(config.RESEND_API_KEY);
     const html = buildNewsletterEmailHtml(issue, {
-      archiveUrl,
+      archiveUrl: previewPlaceholder,
       unsubscribeUrl: `${PUBLIC_SITE}/unsubscribe`,
     });
     const text = buildNewsletterEmailText(issue, {
@@ -91,16 +84,8 @@ export async function renderNewsletterIssue(supabase, config, input) {
     emailTestId = sent?.id ?? null;
   }
 
-  let carouselUrls = [];
-  try {
-    const carousel = await renderNewsletterCarousel(issue);
-    carouselUrls = carousel.urls;
-  } catch (carouselErr) {
-    fail('renderNewsletterIssue:carousel', carouselErr, { slug: issue.slug });
-    carouselUrls = issue.panels.map(
-      (_, i) => `${PUBLIC_SITE}/api/newsletter/carousel/${issue.slug}/panel-${i + 1}.png`
-    );
-  }
+  // Carousel PNGs are generated at publish time for LinkedIn — not linked during draft review.
+  const carouselUrls = [];
 
   const row = {
     title: issue.title,
@@ -111,7 +96,7 @@ export async function renderNewsletterIssue(supabase, config, input) {
     status: 'review',
     agent_task_id: input.taskId ?? null,
     sanity_document_id: sanityDocumentId,
-    web_preview_url: webPreviewUrl,
+    web_preview_url: null,
     email_test_id: emailTestId,
     carousel_urls: carouselUrls,
     updated_at: new Date().toISOString(),
@@ -125,12 +110,26 @@ export async function renderNewsletterIssue(supabase, config, input) {
 
   if (error) throw new Error(`newsletter_issues upsert failed: ${error.message}`);
 
+  const webPreviewUrl = newsletterIssuePreviewUrl(config, data.id);
+  if (!webPreviewUrl) {
+    throw new Error(
+      'APP_BASE_URL is required on content-agent so Slack draft preview links resolve (e.g. Railway public domain).'
+    );
+  }
+
+  const { error: previewErr } = await supabase
+    .from('newsletter_issues')
+    .update({ web_preview_url: webPreviewUrl, updated_at: new Date().toISOString() })
+    .eq('id', data.id);
+  if (previewErr) throw new Error(previewErr.message);
+
   const output = {
     issue_id: data.id,
     web_preview_url: webPreviewUrl,
     email_test_id: emailTestId,
     carousel_urls: carouselUrls,
     sanity_document_id: sanityDocumentId,
+    archive_url_pending: archiveUrl,
   };
 
   success('renderNewsletterIssue', output);
