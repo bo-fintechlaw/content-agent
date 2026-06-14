@@ -23,6 +23,11 @@ import {
 import { runFeedHealthCheck } from './utils/feed-health.js';
 import { fail, start, success } from './utils/logger.js';
 import { withCronRun } from './utils/cron-runs.js';
+import {
+  etDateString,
+  NEWSLETTER_SEGMENT_TITLES,
+  segmentsDueOnDate,
+} from './utils/newsletter-schedule.js';
 import axios from 'axios';
 
 // Prefer project .env over inherited shell vars.
@@ -271,20 +276,39 @@ async function main() {
     { timezone: 'America/New_York' }
   );
 
-  // Newsletter — Thursday 7:30 AM ET: trigger CMO assemble (review in Slack, not Friday PM)
+  // Newsletter — Thursday 7:30 AM ET: biweekly per segment (see newsletter-schedule.js)
   if (config.ENABLE_NEWSLETTER && config.CMO_ASSEMBLE_URL) {
     cron.schedule(
       '30 7 * * 4',
       async () => {
-        start('cron:newsletterAssemble');
-        try {
-          await withCronRun(supabaseClient, 'cron:newsletterAssemble', async () => {
-            const res = await axios.post(config.CMO_ASSEMBLE_URL, {}, { timeout: 120_000 });
-            success('cron:newsletterAssemble', { status: res.status });
-            return { status: res.status, data: res.data };
+        const issueDate = etDateString();
+        const dueSegments = segmentsDueOnDate(issueDate);
+        if (dueSegments.length === 0) {
+          start('cron:newsletterAssemble', { issueDate, dueSegments, skipped: true });
+          success('cron:newsletterAssemble', { skipped: true, issueDate });
+          return;
+        }
+
+        for (const segment of dueSegments) {
+          const cronName = `cron:newsletterAssemble:${segment}`;
+          start(cronName, {
+            segment,
+            title: NEWSLETTER_SEGMENT_TITLES[segment],
+            issueDate,
           });
-        } catch (e) {
-          fail('cron:newsletterAssemble', e);
+          try {
+            await withCronRun(supabaseClient, cronName, async () => {
+              const res = await axios.post(
+                config.CMO_ASSEMBLE_URL,
+                { segment, issue_date: issueDate },
+                { timeout: 120_000 }
+              );
+              success(cronName, { status: res.status, segment, issueDate });
+              return { status: res.status, data: res.data, segment, issueDate };
+            });
+          } catch (e) {
+            fail(cronName, e, { segment, issueDate });
+          }
         }
       },
       { timezone: 'America/New_York' }
