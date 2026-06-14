@@ -7,6 +7,7 @@ import {
 import { parseIssueJson } from '../schemas/newsletter.js';
 import { lintNewsletterIssue } from '../utils/newsletter-compliance-linter.js';
 import { verifyNewsletterBlogLinks } from '../utils/newsletter-link-verifier.js';
+import { renderNewsletterCarousel } from '../integrations/newsletter-carousel.js';
 import { fail, start, success } from '../utils/logger.js';
 
 const PUBLIC_SITE = 'https://fintechlaw.ai';
@@ -89,7 +90,16 @@ export async function renderNewsletterIssue(supabase, config, input) {
     emailTestId = sent?.id ?? null;
   }
 
-  const carouselUrls = buildCarouselPlaceholders(issue);
+  let carouselUrls = [];
+  try {
+    const carousel = await renderNewsletterCarousel(issue);
+    carouselUrls = carousel.urls;
+  } catch (carouselErr) {
+    fail('renderNewsletterIssue:carousel', carouselErr, { slug: issue.slug });
+    carouselUrls = issue.panels.map(
+      (_, i) => `${PUBLIC_SITE}/api/newsletter/carousel/${issue.slug}/panel-${i + 1}.png`
+    );
+  }
 
   const row = {
     title: issue.title,
@@ -124,11 +134,4 @@ export async function renderNewsletterIssue(supabase, config, input) {
 
   success('renderNewsletterIssue', output);
   return output;
-}
-
-/** @param {import('../schemas/newsletter.js').IssueJsonSchema['_output']} issue */
-function buildCarouselPlaceholders(issue) {
-  return issue.panels.map(
-    (p, i) => `${PUBLIC_SITE}/api/newsletter/carousel/${issue.slug}/panel-${i + 1}.png`
-  );
 }

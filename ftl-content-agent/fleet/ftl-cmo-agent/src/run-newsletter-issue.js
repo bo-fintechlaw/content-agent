@@ -1,19 +1,32 @@
-import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import Anthropic from '@anthropic-ai/sdk';
-import { NEWSLETTER_ASSEMBLY_SYSTEM } from './prompts/newsletter-assembly-system.js';
+import {
+  delegateToAgent,
+  reportBack,
+  createAgentAction,
+  postNewsletterIssueDraftCard,
+} from '../../ftl-agent-core/src/index.js';
+import { getDueNewsletterSegment } from './notion-calendar.js';
 import { selectBlogPostsForSegment } from './blog-selector.js';
-
-const PUBLIC_SITE = 'https://fintechlaw.ai';
+import { assembleIssueJson } from './issue-writer.js';
+import Anthropic from '@anthropic-ai/sdk';
 
 /**
- * @param {{ segment?: 'financial_services' | 'tech_ai_legal' }} options
+ * Full CMO newsletter loop: calendar → assemble → delegate → Slack card.
+ * @param {{ segment?: string }} options
  */
 export async function runNewsletterIssue(options = {}) {
-  const segment = options.segment ?? 'financial_services';
   const config = loadConfig();
-
   const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY);
+
+  const calendar =
+    options.segment != null
+      ? { segment: options.segment, source: 'cli' }
+      : await getDueNewsletterSegment(
+          config.NOTION_DB_CONTENT_CALENDAR,
+          config.NOTION_TOKEN
+        );
+
+  const segment = calendar.segment;
   const posts = await selectBlogPostsForSegment(supabase, segment, { limit: 3 });
   if (posts.length < 2) {
     throw new Error(`Not enough published posts for segment=${segment} (found ${posts.length})`);
@@ -32,6 +45,13 @@ export async function runNewsletterIssue(options = {}) {
     throw new Error(`Compliance linter failed: ${(lintBody.violations ?? []).join('; ')}`);
   }
 
+  const { task_id: taskId } = await delegateToAgent(supabase, {
+    fromAgent: 'cmo',
+    toAgent: 'content',
+    kind: 'render_newsletter_issue',
+    payload: { issue_json: issueJson },
+  });
+
   const renderRes = await fetch(
     `${config.CONTENT_AGENT_BASE_URL}/api/tasks/render-newsletter-issue`,
     {
@@ -40,7 +60,7 @@ export async function runNewsletterIssue(options = {}) {
         'Content-Type': 'application/json',
         'X-Newsletter-Task-Token': config.NEWSLETTER_TASK_SECRET,
       },
-      body: JSON.stringify({ issue_json: issueJson, task_id: crypto.randomUUID() }),
+      body: JSON.stringify({ issue_json: issueJson, task_id: taskId }),
     }
   );
   const renderBody = await renderRes.json();
@@ -48,12 +68,46 @@ export async function runNewsletterIssue(options = {}) {
     throw new Error(renderBody.error ?? `render failed HTTP ${renderRes.status}`);
   }
 
-  // TODO(agent-core): write agent_action kind=newsletter_issue_draft to #cmo-bo
+  await reportBack(supabase, {
+    taskId,
+    result: renderBody,
+    status: 'done',
+  });
+
+  const action = await createAgentAction(supabase, {
+    agentId: 'cmo',
+    kind: 'newsletter_issue_draft',
+    payload: {
+      issue_id: renderBody.issue_id,
+      issue_json: issueJson,
+      render: renderBody,
+    },
+    autonomyLevel: 'shadow',
+    gateChannelId: config.SLACK_CMO_BO_CHANNEL_ID,
+  });
+
+  if (config.SLACK_BOT_TOKEN) {
+    await postNewsletterIssueDraftCard({
+      token: config.SLACK_BOT_TOKEN,
+      channelId: config.SLACK_CMO_BO_CHANNEL_ID,
+      payload: {
+        actionId: action.id,
+        issueId: renderBody.issue_id,
+        title: issueJson.title,
+        webPreviewUrl: renderBody.web_preview_url,
+        emailTestId: renderBody.email_test_id,
+        carouselUrls: renderBody.carousel_urls,
+      },
+    });
+  }
+
   return {
     segment,
+    calendar_source: calendar.source,
+    task_id: taskId,
+    action_id: action.id,
     issue_json: issueJson,
     render: renderBody,
-    slack_channel: config.SLACK_CMO_BO_CHANNEL_ID,
   };
 }
 
@@ -75,41 +129,8 @@ function loadConfig() {
     CONTENT_AGENT_BASE_URL: process.env.CONTENT_AGENT_BASE_URL.replace(/\/+$/, ''),
     NEWSLETTER_TASK_SECRET: process.env.NEWSLETTER_TASK_SECRET || '',
     SLACK_CMO_BO_CHANNEL_ID: process.env.SLACK_CMO_BO_CHANNEL_ID || 'C0BB9U7AN0Y',
+    SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN || '',
+    NOTION_TOKEN: process.env.NOTION_TOKEN || '',
+    NOTION_DB_CONTENT_CALENDAR: process.env.NOTION_DB_CONTENT_CALENDAR || '',
   };
-}
-
-/**
- * @param {Anthropic} anthropic
- * @param {Record<string, string>} config
- * @param {{ segment: string, posts: Array<Record<string, unknown>> }} ctx
- */
-async function assembleIssueJson(anthropic, config, ctx) {
-  const title =
-    ctx.segment === 'financial_services' ? 'The Financial Edge' : 'The Startup Solution';
-  const issueDate = new Date().toISOString().slice(0, 10);
-  const slug = `${ctx.segment === 'financial_services' ? 'financial-edge' : 'startup-solution'}-${issueDate.slice(0, 7)}`;
-
-  const userMessage = JSON.stringify({
-    segment: ctx.segment,
-    title,
-    issue_date: issueDate,
-    slug,
-    posts: ctx.posts,
-    instructions:
-      'Return ONLY valid JSON matching the Issue JSON schema. Every feature must link to a live blog_url from posts.',
-  });
-
-  const response = await anthropic.messages.create({
-    model: config.ANTHROPIC_MODEL,
-    max_tokens: 8000,
-    system: NEWSLETTER_ASSEMBLY_SYSTEM,
-    messages: [{ role: 'user', content: userMessage }],
-  });
-
-  const text = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
-  const jsonText = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-  return JSON.parse(jsonText);
 }

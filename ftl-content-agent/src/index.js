@@ -23,6 +23,7 @@ import {
 import { runFeedHealthCheck } from './utils/feed-health.js';
 import { fail, start, success } from './utils/logger.js';
 import { withCronRun } from './utils/cron-runs.js';
+import axios from 'axios';
 
 // Prefer project .env over inherited shell vars.
 dotenv.config({ override: true });
@@ -263,6 +264,26 @@ async function main() {
     },
     { timezone: 'America/New_York' }
   );
+
+  // Newsletter — biweekly Friday 4 PM ET: trigger CMO assemble endpoint
+  if (config.ENABLE_NEWSLETTER && config.CMO_ASSEMBLE_URL) {
+    cron.schedule(
+      '0 16 * * 5',
+      async () => {
+        start('cron:newsletterAssemble');
+        try {
+          await withCronRun(supabaseClient, 'cron:newsletterAssemble', async () => {
+            const res = await axios.post(config.CMO_ASSEMBLE_URL, {}, { timeout: 120_000 });
+            success('cron:newsletterAssemble', { status: res.status });
+            return { status: res.status, data: res.data };
+          });
+        } catch (e) {
+          fail('cron:newsletterAssemble', e);
+        }
+      },
+      { timezone: 'America/New_York' }
+    );
+  }
 
   server.on('error', (err) => {
     fail('main', err);

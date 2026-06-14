@@ -1,0 +1,26 @@
+{
+  "name": "@ftl/agent-core",
+  "version": "0.2.0",
+  "private": true,
+  "description": "FTL agent-core — delegation, actions, autonomy, Slack cards",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./autonomy": "./src/autonomy/ceilings.js",
+    "./delegation": "./src/delegation/delegate.js",
+    "./actions": "./src/actions/actionStore.js",
+    "./slack": "./src/slack/newsletterCard.js"
+  },
+  "scripts": {
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@slack/web-api": "^7.8.0",
+    "@supabase/supabase-js": "^2.49.1"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0"
+  }
+}

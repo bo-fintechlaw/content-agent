@@ -81,21 +81,32 @@ describe('lintNewsletterIssue', () => {
     expect(result.violations[0]).toMatch(/schema/i);
   });
 
-  it('requires enzio_supplied on spotlight panels', () => {
+  it('blocks Enzio bleed without enzio_supplied flag', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
       panels: [
         ...VALID_ISSUE.panels,
         {
           kind: 'spotlight',
-          section_no: 3,
+          section_no: 4,
           kicker: 'SPOTLIGHT',
-          headline: 'Partner spotlight',
-          dek: 'Enzio update',
-          body: 'Enzio platform update supplied by partner.',
+          headline: 'Partner update',
+          dek: 'Enzio platform',
+          body: 'Partner-supplied copy only.',
           enzio_supplied: false,
         },
       ],
+    });
+    expect(result.pass).toBe(false);
+  });
+
+  it('blocks missing footer disclaimer language', () => {
+    const result = lintNewsletterIssue({
+      ...VALID_ISSUE,
+      footer: {
+        ...VALID_ISSUE.footer,
+        disclaimer: 'Subscribe for updates from our team.',
+      },
     });
     expect(result.pass).toBe(false);
   });
