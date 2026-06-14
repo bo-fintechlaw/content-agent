@@ -64,10 +64,10 @@ async function main() {
     console.error('Usage: node scripts/import-zoho-subscribers.mjs <csv-path>');
     process.exit(1);
   }
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
+  const url = process.env.SUPABASE_FLEET_URL || process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_FLEET_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) {
-    console.error('SUPABASE_URL and SUPABASE_SERVICE_KEY required');
+    console.error('SUPABASE_FLEET_URL and SUPABASE_FLEET_SERVICE_KEY required (or legacy SUPABASE_*)');
     process.exit(1);
   }
 

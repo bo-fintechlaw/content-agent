@@ -8,19 +8,19 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { createResendClient, sendNewsletterEmail } from '../src/integrations/resend.js';
 
-dotenv.config({ path: path.resolve('ftl-content-agent/.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ override: true });
 
 const PUBLIC_SITE = 'https://fintechlaw.ai';
 
 async function main() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
+  const url = process.env.SUPABASE_FLEET_URL || process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_FLEET_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
   const resendKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL || 'FinTech Law <newsletter@fintechlaw.ai>';
 
   if (!url || !key || !resendKey) {
-    console.error('SUPABASE_URL, SUPABASE_SERVICE_KEY, RESEND_API_KEY required');
+    console.error('SUPABASE_FLEET_URL, SUPABASE_FLEET_SERVICE_KEY, RESEND_API_KEY required');
     process.exit(1);
   }
 

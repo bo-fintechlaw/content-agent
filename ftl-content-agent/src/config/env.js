@@ -75,6 +75,8 @@ const OPTIONAL_STRING = [
   'SLACK_CMO_BO_CHANNEL_ID',
   'ENABLE_NEWSLETTER',
   'CMO_ASSEMBLE_URL',
+  'SUPABASE_FLEET_URL',
+  'SUPABASE_FLEET_SERVICE_KEY',
 ];
 
 /**
@@ -253,6 +255,11 @@ export function validateEnv() {
       ? false
       : ['1', 'true', 'yes', 'y'].includes(String(enableNewsletterRaw).toLowerCase());
   config.CMO_ASSEMBLE_URL = (optional.CMO_ASSEMBLE_URL ?? '').trim();
+
+  // Fleet Supabase (ftl-agents / wrxuyabngyaiujgcfexj) — newsletter, subscribers, agent_tasks.
+  // Content pipeline keeps SUPABASE_URL + SUPABASE_SERVICE_KEY on the content project.
+  config.SUPABASE_FLEET_URL = (optional.SUPABASE_FLEET_URL ?? '').trim();
+  config.SUPABASE_FLEET_SERVICE_KEY = (optional.SUPABASE_FLEET_SERVICE_KEY ?? '').trim();
 
   success('validateEnv', { port, nodeEnv });
   return config;

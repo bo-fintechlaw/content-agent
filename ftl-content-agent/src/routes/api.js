@@ -24,9 +24,11 @@ import { createSubscribeRouter } from './newsletter-subscribe.js';
 /**
  * API routes — Phase 1: health + stubs. Later: suggest-topic, topics, drafts.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabaseClient
+ * @param {import('@supabase/supabase-js').SupabaseClient | null} [fleetSupabaseClient]
  */
-export function createApiRouter(supabaseClient, config) {
+export function createApiRouter(supabaseClient, config, fleetSupabaseClient = null) {
   const router = express.Router();
+  const fleetDb = fleetSupabaseClient;
 
   router.get('/health', async (_req, res) => {
     start('GET /api/health');
@@ -603,9 +605,11 @@ export function createApiRouter(supabaseClient, config) {
     }
   });
 
-  router.use('/', createNewsletterTaskRouter(supabaseClient, config));
-  router.use('/', createNewsletterWebhookRouter(supabaseClient));
-  router.use('/', createSubscribeRouter(supabaseClient, config));
+  if (fleetDb) {
+    router.use('/', createNewsletterTaskRouter(fleetDb, config));
+    router.use('/', createNewsletterWebhookRouter(fleetDb));
+    router.use('/', createSubscribeRouter(fleetDb, config));
+  }
 
   return router;
 }

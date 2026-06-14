@@ -3,7 +3,7 @@ import express from 'express';
 import cron from 'node-cron';
 import { validateEnv } from './config/env.js';
 import { initializeMcpConnections } from '../dist/mcp/mcpManager.js';
-import { createSupabaseClient } from './db/supabase.js';
+import { createSupabaseClient, createFleetSupabaseClient } from './db/supabase.js';
 import { createApiRouter } from './routes/api.js';
 import { createSlackWebhookRouter } from './routes/webhooks.js';
 import { runSourceScan } from './pipeline/scanner.js';
@@ -61,6 +61,12 @@ async function main() {
     config.SUPABASE_URL,
     config.SUPABASE_SERVICE_KEY
   );
+  const fleetSupabaseClient = createFleetSupabaseClient(config);
+  if (!fleetSupabaseClient) {
+    console.warn(
+      '[ftl-content-agent] SUPABASE_FLEET_URL / SUPABASE_FLEET_SERVICE_KEY not set — newsletter routes disabled'
+    );
+  }
 
   const app = express();
   app.locals.cron = cron;
@@ -76,7 +82,7 @@ async function main() {
     res.status(200).json({ status: 'ok', timestamp });
   });
 
-  app.use('/api', createApiRouter(supabaseClient, config));
+  app.use('/api', createApiRouter(supabaseClient, config, fleetSupabaseClient));
 
   const server = app.listen(config.PORT, () => {
     success('main', {
