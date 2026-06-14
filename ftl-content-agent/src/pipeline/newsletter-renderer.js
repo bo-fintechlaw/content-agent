@@ -61,8 +61,9 @@ export async function renderNewsletterIssue(supabase, config, input) {
   if (config.SANITY_PROJECT_ID && config.SANITY_API_TOKEN) {
     const client = createSanityClient(config);
     const doc = buildNewsletterSanityDocument(issue);
-    const created = await client.create({ ...doc, _id: `drafts.newsletter-${issue.slug}` });
-    sanityDocumentId = created?._id ?? null;
+    const draftId = `drafts.newsletter-${issue.slug}`;
+    const created = await client.createOrReplace({ ...doc, _id: draftId });
+    sanityDocumentId = created?._id ?? draftId;
   }
 
   let emailTestId = null;
