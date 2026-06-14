@@ -15,7 +15,7 @@ export function NewsletterSubscribeForm() {
     const segments =
       segment === 'both' ? ['financial_services', 'tech_ai_legal'] : [segment];
 
-    await fetch('/api/newsletter/subscribe', {
+    await fetch('/.netlify/functions/newsletter-subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, segments }),
