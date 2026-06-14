@@ -12,6 +12,11 @@ import {
   sendSocialReviewMessage,
   sendStatusMessage,
 } from '../integrations/slack.js';
+import {
+  fleetSupabaseFromConfig,
+  handleNewsletterSlackInteraction,
+  isNewsletterSlackAction,
+} from '../integrations/cmo-newsletter-slack.js';
 
 export function createSlackWebhookRouter(supabase, config) {
   const router = express.Router();
@@ -207,8 +212,20 @@ export function createSlackWebhookRouter(supabase, config) {
 
         // Handle button clicks
         const action = payload.actions?.[0];
-        const draftId = action?.value;
         const actionId = action?.action_id;
+
+        if (actionId && isNewsletterSlackAction(actionId)) {
+          const fleetSupabase = fleetSupabaseFromConfig(config);
+          if (!fleetSupabase) {
+            fail('POST /slack/interactions', new Error('SUPABASE_FLEET_URL not configured'));
+            return res.status(200).json({ ok: true });
+          }
+          await handleNewsletterSlackInteraction(fleetSupabase, config, payload);
+          success('POST /slack/interactions', { actionId, kind: 'newsletter' });
+          return res.status(200).json({ ok: true });
+        }
+
+        const draftId = action?.value;
         if (!draftId || !actionId) return res.status(200).json({ ok: true });
 
         if (actionId === 'approve_draft') {
