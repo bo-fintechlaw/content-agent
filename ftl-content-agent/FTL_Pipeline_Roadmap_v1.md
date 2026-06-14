@@ -136,7 +136,7 @@ Documented in `INTERFACE.md`:
 
 ### 3.8 Cron
 
-- Friday 4 PM ET (biweekly): `CMO_ASSEMBLE_URL` when `ENABLE_NEWSLETTER=true`
+- Thursday 7:30 AM ET: `CMO_ASSEMBLE_URL` when `ENABLE_NEWSLETTER=true`
 - Resend webhooks → `issue_metrics`
 
 ### 3.9 Fleet repos
@@ -176,7 +176,7 @@ Estimated 4-6 hours and adds a meaningful new failure surface (Gmail auth expira
 | 7 | Slack `/suggest` command | ~3 | ⏳ next planned build |
 | 8 | Newsletter module (CMO assembles → content-agent renders; Resend + fleet Supabase) | ~16 | ⏳ in progress |
 | 9 | First newsletter issue (manually triggered, full review cycle) | ~2 | ⏳ after #8 |
-| 10 | Newsletter cron auto-runs biweekly | — | ⏳ after #9 |
+| 10 | Newsletter cron auto-runs Thursday 7:30 AM ET | — | ⏳ after #9 |
 | 11 | Title/meta CTR fix loop for poor-CTR top-ranked pages | ~4 | ⏳ defer until ≥2 weeks of imported data |
 | 12 | Email ingestion (regulator forwards) | ~6 | ⏳ only if `/suggest` proves insufficient |
 | 13 | Enzio company-page posting + topic-routed content variants | ~6 | ⏳ deferred per 2026-05-08 decision |

@@ -271,10 +271,10 @@ async function main() {
     { timezone: 'America/New_York' }
   );
 
-  // Newsletter — biweekly Friday 4 PM ET: trigger CMO assemble endpoint
+  // Newsletter — Thursday 7:30 AM ET: trigger CMO assemble (review in Slack, not Friday PM)
   if (config.ENABLE_NEWSLETTER && config.CMO_ASSEMBLE_URL) {
     cron.schedule(
-      '0 16 * * 5',
+      '30 7 * * 4',
       async () => {
         start('cron:newsletterAssemble');
         try {
