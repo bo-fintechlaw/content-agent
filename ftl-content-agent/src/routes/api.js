@@ -17,6 +17,9 @@ import { createSanityClient, patchPublishedShareImage } from '../integrations/sa
 import axios from 'axios';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
+import { createNewsletterTaskRouter } from './newsletter-tasks.js';
+import { createNewsletterWebhookRouter } from './newsletter-webhooks.js';
+import { createSubscribeRouter } from './newsletter-subscribe.js';
 
 /**
  * API routes — Phase 1: health + stubs. Later: suggest-topic, topics, drafts.
@@ -599,6 +602,10 @@ export function createApiRouter(supabaseClient, config) {
       return res.status(500).send(`Preview unavailable: ${error.message}`);
     }
   });
+
+  router.use('/', createNewsletterTaskRouter(supabaseClient, config));
+  router.use('/', createNewsletterWebhookRouter(supabaseClient));
+  router.use('/', createSubscribeRouter(supabaseClient, config));
 
   return router;
 }
