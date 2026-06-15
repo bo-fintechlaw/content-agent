@@ -24,6 +24,7 @@ const NewsletterPanelBaseSchema = z.object({
 
 export const NewsletterFeaturePanelSchema = NewsletterPanelBaseSchema.extend({
   kind: z.literal('feature'),
+  hero_image_url: z.string().url().optional(),
   stats: z.array(NewsletterStatSchema).max(5).default([]),
   pull_quote: z.string().min(1),
   action_list: z.array(z.string().min(1)).min(1),

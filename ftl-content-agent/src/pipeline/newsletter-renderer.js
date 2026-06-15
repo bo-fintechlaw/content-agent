@@ -1,9 +1,11 @@
 import { createResendClient, sendNewsletterEmail } from '../integrations/resend.js';
+import { createSanityClient } from '../integrations/sanity.js';
 import {
   buildNewsletterEmailHtml,
   buildNewsletterEmailText,
 } from '../emails/newsletter-issue-html.js';
 import { parseIssueJson } from '../schemas/newsletter.js';
+import { enrichIssueWithHeroImages } from './newsletter-hero-enrichment.js';
 import { lintNewsletterIssue } from '../utils/newsletter-compliance-linter.js';
 import { verifyNewsletterBlogLinks } from '../utils/newsletter-link-verifier.js';
 import { newsletterIssuePreviewUrl } from '../utils/newsletter-preview-url.js';
@@ -21,6 +23,7 @@ export function buildNewsletterSanityDocument(issue) {
     title: issue.title,
     slug: { _type: 'slug', current: issue.slug },
     issueDate: issue.issue_date,
+    publishedAt: `${issue.issue_date}T12:00:00.000Z`,
     segment: issue.segment,
     intro: issue.intro,
     toc: issue.toc,
@@ -28,7 +31,10 @@ export function buildNewsletterSanityDocument(issue) {
     authorName: issue.author.name,
     authorTitle: issue.author.title,
     footerDisclaimer: issue.footer.disclaimer,
+    physicalAddress: issue.footer.physical_address,
     subscribeUrl: issue.footer.subscribe_url,
+    seoTitle: `${issue.title} | FinTech Law Newsletter`,
+    seoDescription: issue.intro.slice(0, 160),
   };
 }
 
@@ -41,7 +47,14 @@ export function buildNewsletterSanityDocument(issue) {
 export async function renderNewsletterIssue(supabase, config, input) {
   start('renderNewsletterIssue', { taskId: input?.taskId });
 
-  const issue = parseIssueJson(input.issueJson);
+  let issue = parseIssueJson(input.issueJson);
+
+  let sanityClient = null;
+  if (config.SANITY_PROJECT_ID && config.SANITY_API_TOKEN) {
+    sanityClient = createSanityClient(config);
+  }
+  issue = await enrichIssueWithHeroImages(issue, sanityClient);
+
   const lint = lintNewsletterIssue(issue);
   if (!lint.pass) {
     throw new Error(`Compliance linter failed: ${lint.violations.join('; ')}`);
@@ -53,7 +66,7 @@ export async function renderNewsletterIssue(supabase, config, input) {
     throw new Error(`Blog link verification failed: ${detail}`);
   }
 
-  const archiveUrl = `${PUBLIC_SITE}/newsletter/${issue.slug}`;
+  const archiveUrl = `${PUBLIC_SITE}/newsletters/${issue.slug}`;
 
   // Draft review uses content-agent HTML preview — not the public archive URL.
   let sanityDocumentId = null;
