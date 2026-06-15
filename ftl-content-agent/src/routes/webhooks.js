@@ -4,6 +4,7 @@ import { fail, start, success } from '../utils/logger.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { reviseBlogContent } from '../pipeline/blog-reviser.js';
+import { runJudging } from '../pipeline/judge.js';
 import { runDraftAndJudge } from '../pipeline/production.js';
 import {
   createSlackClient,
