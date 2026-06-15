@@ -316,7 +316,7 @@ const { postXTweet } = await import('../../integrations/x.js');
 
 const config = {
   ANTHROPIC_API_KEY: 'test-key',
-  ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+  ANTHROPIC_MODEL: 'claude-opus-4-8', // pragma: allowlist secret
   SLACK_BOT_TOKEN: 'xoxb-test',
   SLACK_CHANNEL_ID: 'C-TEST',
   SANITY_PROJECT_ID: 'test-proj',

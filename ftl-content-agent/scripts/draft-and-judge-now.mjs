@@ -32,7 +32,7 @@ for (const k of required) {
     process.exit(1);
   }
 }
-if (!process.env.ANTHROPIC_MODEL) process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+if (!process.env.ANTHROPIC_MODEL) process.env.ANTHROPIC_MODEL = 'claude-opus-4-8'; // pragma: allowlist secret
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 const { runDraftAndJudge } = await import('../src/pipeline/production.js');

@@ -3,7 +3,7 @@ import { CircuitBreaker } from '../utils/circuit-breaker.js';
 import { tpmBudget, estimateInputTokens } from '../utils/tpm-budget.js';
 import { fail, start, success } from '../utils/logger.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-opus-4-8'; // pragma: allowlist secret // pragma: allowlist secret
 
 /**
  * Per-model circuit breakers. Anthropic rate limits are enforced per-model,

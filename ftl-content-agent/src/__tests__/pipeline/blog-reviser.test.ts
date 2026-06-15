@@ -58,7 +58,7 @@ function buildDb(initial: DraftRow) {
   return { supabase, drafts };
 }
 
-const config = { ANTHROPIC_API_KEY: 'test', ANTHROPIC_MODEL: 'claude-sonnet-4-6' };
+const config = { ANTHROPIC_API_KEY: 'test', ANTHROPIC_MODEL: 'claude-opus-4-8', // pragma: allowlist secret };
 
 beforeEach(() => {
   mockResponse = null;
