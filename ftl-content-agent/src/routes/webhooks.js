@@ -4,8 +4,7 @@ import { fail, start, success } from '../utils/logger.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { reviseBlogContent } from '../pipeline/blog-reviser.js';
-import { runJudging } from '../pipeline/judge.js';
-import { runDrafting } from '../pipeline/drafter.js';
+import { runDraftAndJudge } from '../pipeline/production.js';
 import {
   createSlackClient,
   openFeedbackModal,
@@ -299,15 +298,37 @@ export function createSlackWebhookRouter(supabase, config) {
           }
           (async () => {
             try {
-              const result = await runDrafting(supabase, config, { topicId });
-              if (result?.drafted && result?.draftId) {
-                await runJudging(supabase, config, { draftId: result.draftId });
-              } else {
+              const result = await runDraftAndJudge(supabase, config, {
+                topicId,
+                runKind: 'on_demand',
+              });
+              if (result?.judge?.judged) {
+                return;
+              }
+              if (result?.judge?.deferred) {
                 const slack = createSlackClient(config.SLACK_BOT_TOKEN);
                 await sendStatusMessage(
                   slack,
                   config.SLACK_CHANNEL_ID,
-                  `:warning: Could not draft topic ${topicId}: ${result?.reason || 'unknown'}.`
+                  `:hourglass_flowing_sand: Draft created but judge deferred (rate limit) — will retry on the next judge cron. Draft: \`${result.judge.draftId}\`.`
+                );
+                return;
+              }
+              const draftId =
+                result?.judge?.draftId ||
+                result?.draft?.draftId ||
+                result?.attempts?.at(-1)?.draftId;
+              const reason =
+                result?.draft?.reason ||
+                result?.precheck?.reason ||
+                result?.attempts?.at(-1)?.precheck?.reason ||
+                'unknown';
+              if (!result?.judge?.judged) {
+                const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+                await sendStatusMessage(
+                  slack,
+                  config.SLACK_CHANNEL_ID,
+                  `:warning: Draft pipeline did not complete for topic ${topicId}${draftId ? ` (draft \`${draftId}\`)` : ''}: ${reason}. Check logs or retry.`
                 );
               }
             } catch (err) {
