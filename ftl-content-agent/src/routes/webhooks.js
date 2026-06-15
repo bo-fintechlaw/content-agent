@@ -229,125 +229,57 @@ export function createSlackWebhookRouter(supabase, config) {
         if (!draftId || !actionId) return res.status(200).json({ ok: true });
 
         if (actionId === 'approve_draft') {
-          // Human approval is the override for any judge verdict (REVISE/REJECT
-          // included). Flip judge_pass=true so the orchestrator's autopublish
-          // gate is satisfied; otherwise an approved-but-judge-failed draft
-          // would sit indefinitely. Autonomous mode still keys off the judge's
-          // own judge_pass=true on PASS — this just lets a human override.
-          await supabase
-            .from('content_drafts')
-            .update({ judge_pass: true })
-            .eq('id', draftId);
-          await setTopicStatusFromDraft(supabase, draftId, 'approved');
-          const ackSlack = createSlackClient(config.SLACK_BOT_TOKEN);
-          try {
-            await sendStatusMessage(
-              ackSlack,
-              config.SLACK_CHANNEL_ID,
-              ':white_check_mark: Approved — publishing to Sanity…'
-            );
-          } catch (slackErr) {
-            fail('approveAck', slackErr, { draftId });
-          }
-          publishDraftToSanity(supabase, config, draftId)
-            .then(async () => {
-              try {
-                const { data: draft } = await supabase
-                  .from('content_drafts')
-                  .select('id, blog_title, blog_slug, linkedin_post, x_post, x_thread')
-                  .eq('id', draftId)
-                  .single();
-                if (draft) {
-                  const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-                  const blogUrl = draft.blog_slug
-                    ? `https://fintechlaw.ai/blog/${draft.blog_slug}`
-                    : '';
-                  try {
-                    await sendStatusMessage(
-                      slack,
-                      config.SLACK_CHANNEL_ID,
-                      blogUrl
-                        ? `:memo: Published: ${blogUrl}`
-                        : ':memo: Published to Sanity (slug missing — check live site).'
-                    );
-                  } catch (statusErr) {
-                    fail('publishConfirm', statusErr, { draftId });
-                  }
-                  await sendSocialReviewMessage(slack, config.SLACK_CHANNEL_ID, {
-                    draftId: draft.id,
-                    blogTitle: draft.blog_title,
-                    linkedinPost: draft.linkedin_post,
-                    xPost: draft.x_post,
-                    xThread: draft.x_thread,
-                  });
-                }
-              } catch (socialErr) {
-                fail('sendSocialReviewAfterPublish', socialErr);
-              }
-            })
-            .catch(async (error) => {
-              fail('publishDraftToSanity', error);
-              try {
-                const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-                await sendStatusMessage(
-                  slack,
-                  config.SLACK_CHANNEL_ID,
-                  `:x: Publish failed: ${error?.message || 'unknown error'}. Topic reset to review — try again.`
-                );
-              } catch (statusErr) {
-                fail('publishFailNotice', statusErr, { draftId });
-              }
-              try {
-                await setTopicStatusFromDraft(supabase, draftId, 'review');
-              } catch (statusErr) {
-                fail('publishDraftToSanity:statusUpdate', statusErr);
-              }
+          // Ack Slack within its 3s interactivity budget; DB + publish run async.
+          if (payload.response_url) {
+            void postToSlackResponseUrl(payload.response_url, {
+              response_type: 'ephemeral',
+              text: ':hourglass_flowing_sand: Processing approval…',
             });
+          }
+          res.status(200).json({ ok: true });
+          void processApproveDraft(supabase, config, draftId).catch((err) =>
+            fail('processApproveDraft', err, { draftId })
+          );
+          return;
         } else if (actionId === 'approve_social') {
-          await supabase
-            .from('content_drafts')
-            .update({ social_approved: true })
-            .eq('id', draftId);
-          try {
-            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-            await sendStatusMessage(
-              slack,
-              config.SLACK_CHANNEL_ID,
-              ':white_check_mark: Social approved — will post on the next orchestrator tick (every 15 min).'
-            );
-          } catch (slackErr) {
-            fail('approveSocialAck', slackErr, { draftId });
+          if (payload.response_url) {
+            void postToSlackResponseUrl(payload.response_url, {
+              response_type: 'ephemeral',
+              text: ':hourglass_flowing_sand: Approving social posts…',
+            });
           }
+          res.status(200).json({ ok: true });
+          void processApproveSocial(supabase, config, draftId).catch((err) =>
+            fail('processApproveSocial', err, { draftId })
+          );
+          return;
         } else if (actionId === 'reject_social') {
-          await supabase
-            .from('content_drafts')
-            .update({ social_approved: false })
-            .eq('id', draftId);
-          try {
-            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-            await sendStatusMessage(
-              slack,
-              config.SLACK_CHANNEL_ID,
-              ':x: Social rejected — will not post.'
-            );
-          } catch (slackErr) {
-            fail('rejectSocialAck', slackErr, { draftId });
+          if (payload.response_url) {
+            void postToSlackResponseUrl(payload.response_url, {
+              response_type: 'ephemeral',
+              text: ':hourglass_flowing_sand: Skipping social posts…',
+            });
           }
+          res.status(200).json({ ok: true });
+          void processRejectSocial(supabase, config, draftId).catch((err) =>
+            fail('processRejectSocial', err, { draftId })
+          );
+          return;
         } else if (actionId === 'request_changes_social') {
           const slack = createSlackClient(config.SLACK_BOT_TOKEN);
           await openFeedbackModal(slack, payload.trigger_id, draftId, 'social');
         } else if (actionId === 'reject_draft') {
-          await setTopicStatusFromDraft(supabase, draftId, 'rejected');
-          try {
-            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
-            await sendStatusMessage(
-              slack,
-              config.SLACK_CHANNEL_ID,
-              ':x: Draft rejected — topic moved to rejected status; no further action will be taken.'
-            );
-          } catch (slackErr) {
-            fail('rejectDraftAck', slackErr, { draftId });
+          if (payload.response_url) {
+            void postToSlackResponseUrl(payload.response_url, {
+              response_type: 'ephemeral',
+              text: ':hourglass_flowing_sand: Rejecting draft…',
+            });
           }
+          res.status(200).json({ ok: true });
+          void processRejectDraft(supabase, config, draftId).catch((err) =>
+            fail('processRejectDraft', err, { draftId })
+          );
+          return;
         } else if (actionId === 'request_changes_draft') {
           const slack = createSlackClient(config.SLACK_BOT_TOKEN);
           await openFeedbackModal(slack, payload.trigger_id, draftId);
@@ -521,6 +453,8 @@ function verifySlackRequest(req, signingSecret) {
   const signature = req.headers['x-slack-signature'];
   const timestamp = req.headers['x-slack-request-timestamp'];
   if (!signature || !timestamp || !req.rawBody) return false;
+  const ageSec = Math.abs(Date.now() / 1000 - Number.parseInt(timestamp, 10));
+  if (!Number.isFinite(ageSec) || ageSec > 60 * 5) return false;
   const base = `v0:${timestamp}:${req.rawBody}`;
   const hmac = crypto.createHmac('sha256', signingSecret).update(base).digest('hex');
   const expected = `v0=${hmac}`;
@@ -529,6 +463,123 @@ function verifySlackRequest(req, signingSecret) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Human approval is the override for any judge verdict (REVISE/REJECT included).
+ * Flip judge_pass=true so the orchestrator's autopublish gate is satisfied.
+ */
+async function processApproveDraft(supabase, config, draftId) {
+  start('processApproveDraft', { draftId });
+  await supabase.from('content_drafts').update({ judge_pass: true }).eq('id', draftId);
+  await setTopicStatusFromDraft(supabase, draftId, 'approved');
+  const ackSlack = createSlackClient(config.SLACK_BOT_TOKEN);
+  try {
+    await sendStatusMessage(
+      ackSlack,
+      config.SLACK_CHANNEL_ID,
+      ':white_check_mark: Approved — publishing to Sanity…'
+    );
+  } catch (slackErr) {
+    fail('approveAck', slackErr, { draftId });
+  }
+  try {
+    await publishDraftToSanity(supabase, config, draftId);
+    const { data: draft } = await supabase
+      .from('content_drafts')
+      .select('id, blog_title, blog_slug, linkedin_post, x_post, x_thread')
+      .eq('id', draftId)
+      .single();
+    if (draft) {
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      const blogUrl = draft.blog_slug ? `https://fintechlaw.ai/blog/${draft.blog_slug}` : '';
+      try {
+        await sendStatusMessage(
+          slack,
+          config.SLACK_CHANNEL_ID,
+          blogUrl
+            ? `:memo: Published: ${blogUrl}`
+            : ':memo: Published to Sanity (slug missing — check live site).'
+        );
+      } catch (statusErr) {
+        fail('publishConfirm', statusErr, { draftId });
+      }
+      await sendSocialReviewMessage(slack, config.SLACK_CHANNEL_ID, {
+        draftId: draft.id,
+        blogTitle: draft.blog_title,
+        linkedinPost: draft.linkedin_post,
+        xPost: draft.x_post,
+        xThread: draft.x_thread,
+      });
+    }
+    success('processApproveDraft', { draftId });
+  } catch (error) {
+    fail('publishDraftToSanity', error, { draftId });
+    try {
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendStatusMessage(
+        slack,
+        config.SLACK_CHANNEL_ID,
+        `:x: Publish failed: ${error?.message || 'unknown error'}. Topic reset to review — try again.`
+      );
+    } catch (statusErr) {
+      fail('publishFailNotice', statusErr, { draftId });
+    }
+    try {
+      await setTopicStatusFromDraft(supabase, draftId, 'review');
+    } catch (statusErr) {
+      fail('publishDraftToSanity:statusUpdate', statusErr);
+    }
+    throw error;
+  }
+}
+
+async function processRejectDraft(supabase, config, draftId) {
+  start('processRejectDraft', { draftId });
+  await setTopicStatusFromDraft(supabase, draftId, 'rejected');
+  try {
+    const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+    await sendStatusMessage(
+      slack,
+      config.SLACK_CHANNEL_ID,
+      ':x: Draft rejected — topic moved to rejected status; no further action will be taken.'
+    );
+  } catch (slackErr) {
+    fail('rejectDraftAck', slackErr, { draftId });
+  }
+  success('processRejectDraft', { draftId });
+}
+
+async function processApproveSocial(supabase, config, draftId) {
+  start('processApproveSocial', { draftId });
+  await supabase.from('content_drafts').update({ social_approved: true }).eq('id', draftId);
+  try {
+    const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+    await sendStatusMessage(
+      slack,
+      config.SLACK_CHANNEL_ID,
+      ':white_check_mark: Social approved — will post on the next orchestrator tick (every 15 min).'
+    );
+  } catch (slackErr) {
+    fail('approveSocialAck', slackErr, { draftId });
+  }
+  success('processApproveSocial', { draftId });
+}
+
+async function processRejectSocial(supabase, config, draftId) {
+  start('processRejectSocial', { draftId });
+  await supabase.from('content_drafts').update({ social_approved: false }).eq('id', draftId);
+  try {
+    const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+    await sendStatusMessage(
+      slack,
+      config.SLACK_CHANNEL_ID,
+      ':x: Social rejected — will not post.'
+    );
+  } catch (slackErr) {
+    fail('rejectSocialAck', slackErr, { draftId });
+  }
+  success('processRejectSocial', { draftId });
 }
 
 async function setTopicStatusFromDraft(supabase, draftId, status) {
