@@ -10,6 +10,10 @@ import {
 } from './citation-harvest.js';
 import { runCitationVerificationSubagent } from './citation-subagent.js';
 import {
+  inferPrimarySourceUrlFromDraft,
+  isRecoverablePrejudgeBlockedDraft,
+} from './prejudge-primary.js';
+import {
   computeJudgeComposite,
   normalizeJudgeScores as normalizeJudgeScoresFromVerdict,
 } from './verdict.js';
@@ -60,7 +64,11 @@ export async function runDraftAndJudge(supabase, config, options = {}) {
       let draftId = draftResult.draftId || null;
       if (!draftResult.drafted) {
         // If an unjudged draft already exists, continue pipeline on that draft id.
-        if (draftResult.reason === 'unjudged_draft_exists' && draftId) {
+        if (
+          (draftResult.reason === 'unjudged_draft_exists' ||
+            draftResult.reason === 'prejudge_blocked_recoverable') &&
+          draftId
+        ) {
           const precheck = await runPreJudgeQualityChecks(supabase, config, draftId);
           if (precheck.blocked) {
             attempts.push({ pass, draftId, draft: draftResult, precheck, judge: null });
@@ -200,6 +208,33 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
   if (error) throw new Error(error.message);
   if (!draft) return { blocked: true, reason: 'draft_not_found' };
 
+  if (isRecoverablePrejudgeBlockedDraft(draft)) {
+    const inferred = inferPrimarySourceUrlFromDraft(draft);
+    if (inferred) {
+      await supabase
+        .from('content_topics')
+        .update({
+          source_url: inferred,
+          status: 'judging',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', draft.topic_id);
+      const keptFlags = (Array.isArray(draft.judge_flags) ? draft.judge_flags : []).filter(
+        (f) => typeof f === 'string' && !f.startsWith('prejudge:')
+      );
+      await supabase
+        .from('content_drafts')
+        .update({ judge_pass: null, judge_flags: keptFlags })
+        .eq('id', draftId);
+      if (draft.content_topics) {
+        draft.content_topics.source_url = inferred;
+      }
+      draft.judge_pass = null;
+      draft.judge_flags = keptFlags;
+      success('runPreJudgeQualityChecks:recovered', { draftId, inferred });
+    }
+  }
+
   start('runPreJudgeQualityChecks:format');
   const updates = {};
   const normalizedSections = normalizeBlogBody(draft.blog_body);
@@ -247,6 +282,19 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
   if (updateErr) throw new Error(updateErr.message);
 
   if (!citationGate.blocked) {
+    const topicSource = String(draft.content_topics?.source_url ?? '').trim();
+    if (!topicSource) {
+      const inferred = inferPrimarySourceUrlFromDraft({
+        ...draft,
+        blog_body: updates.blog_body,
+      });
+      if (inferred) {
+        await supabase
+          .from('content_topics')
+          .update({ source_url: inferred, updated_at: new Date().toISOString() })
+          .eq('id', draft.topic_id);
+      }
+    }
     // Propagate the citation context out so runJudging can skip the redundant pass.
     success('runPreJudgeQualityChecks:compile', { draftId });
     success('runPreJudgeQualityChecks', { draftId, blocked: false });
@@ -342,7 +390,10 @@ async function enforceCitationRequirements({
   model,
   enforce,
 }) {
-  const primary = String(topicSourceUrl ?? '').trim();
+  let primary = String(topicSourceUrl ?? '').trim();
+  if (!primary) {
+    primary = inferPrimarySourceUrlFromDraft(draft);
+  }
   const extracted = extractHttpUrlsFromDraft(draft);
   const candidates = [...new Set([primary, ...extracted].filter(Boolean))].slice(0, 12);
   const fetches = await fetchAllCitationPreviews(candidates);
