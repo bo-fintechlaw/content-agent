@@ -1,7 +1,7 @@
 import express from 'express';
 import { runDrafting } from '../pipeline/drafter.js';
 import { runJudging } from '../pipeline/judge.js';
-import { runDraftAndJudge } from '../pipeline/production.js';
+import { runDraftAndJudge, recoverTopicReview } from '../pipeline/production.js';
 import { runTopicRanking } from '../pipeline/ranker.js';
 import { runSourceScan } from '../pipeline/scanner.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
@@ -238,6 +238,38 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
       res.json({ ok: true, ...result });
     } catch (error) {
       fail('GET /api/start-production', error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  /** Recover a prejudge-blocked draft and judge → Slack (no new draft). */
+  router.get('/recover-topic', async (req, res) => {
+    start('GET /api/recover-topic');
+    try {
+      const secret = config.PRODUCTION_TRIGGER_SECRET;
+      if (secret) {
+        const token = String(
+          req.query.token ?? req.headers['x-content-agent-token'] ?? ''
+        ).trim();
+        if (token !== secret) {
+          res.status(401).json({ ok: false, error: 'Unauthorized' });
+          return;
+        }
+      }
+      const topicId = String(req.query.topicId ?? '').trim();
+      const draftId = String(req.query.draftId ?? '').trim();
+      if (!topicId && !draftId) {
+        res.status(400).json({ ok: false, error: 'Missing query param: topicId or draftId' });
+        return;
+      }
+      const result = await recoverTopicReview(supabaseClient, config, {
+        topicId: topicId || undefined,
+        draftId: draftId || undefined,
+      });
+      success('GET /api/recover-topic', { topicId: topicId || null, draftId: draftId || null });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      fail('GET /api/recover-topic', error);
       res.status(500).json({ ok: false, error: error.message });
     }
   });
