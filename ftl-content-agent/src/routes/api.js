@@ -30,6 +30,20 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   const router = express.Router();
   const fleetDb = fleetSupabaseClient;
 
+  /** Same gate as start-production / recover-topic (PRODUCTION_TRIGGER_SECRET). */
+  function requireProductionTriggerAuth(req, res) {
+    const secret = config.PRODUCTION_TRIGGER_SECRET;
+    if (!secret) return true;
+    const token = String(
+      req.query.token ?? req.headers['x-content-agent-token'] ?? '',
+    ).trim();
+    if (token !== secret) {
+      res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return false;
+    }
+    return true;
+  }
+
   router.get('/health', async (_req, res) => {
     start('GET /api/health');
 
@@ -277,6 +291,7 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   router.get('/publish-now', async (req, res) => {
     start('GET /api/publish-now');
     try {
+      if (!requireProductionTriggerAuth(req, res)) return;
       const draftId = String(req.query.draftId ?? '').trim();
       if (!draftId) {
         res.status(400).json({ ok: false, error: 'Missing query param: draftId' });
@@ -308,6 +323,7 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   router.get('/regenerate-image', async (req, res) => {
     start('GET /api/regenerate-image');
     try {
+      if (!requireProductionTriggerAuth(req, res)) return;
       const draftId = String(req.query.draftId ?? '').trim();
       if (!draftId) {
         res.status(400).json({ ok: false, error: 'Missing query param: draftId' });
@@ -434,6 +450,7 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   router.get('/orchestrate-now', async (req, res) => {
     start('GET /api/orchestrate-now');
     try {
+      if (!requireProductionTriggerAuth(req, res)) return;
       const dryRunRaw = String(req.query.dryRun ?? '');
       const dryRun = ['1', 'true', 'yes'].includes(dryRunRaw.toLowerCase());
       const skipSocialRaw = String(req.query.skipSocial ?? '');
