@@ -191,8 +191,8 @@ export function createSlackWebhookRouter(supabase, config) {
 
   router.post(
     '/interactions',
-    express.urlencoded({
-      extended: false,
+    express.raw({
+      type: '*/*',
       verify: (req, _res, buf) => {
         req.rawBody = buf.toString('utf8');
       },
@@ -203,7 +203,12 @@ export function createSlackWebhookRouter(supabase, config) {
         if (!verifySlackRequest(req, config.SLACK_SIGNING_SECRET)) {
           return res.status(401).json({ ok: false });
         }
-        const payload = JSON.parse(req.body.payload ?? '{}');
+        const payload = parseSlackInteractionPayload(req);
+
+        if (payload.type === 'url_verification') {
+          success('POST /slack/interactions', { kind: 'url_verification' });
+          return res.status(200).json({ challenge: payload.challenge });
+        }
 
         // Handle modal submissions (feedback form)
         if (payload.type === 'view_submission') {
@@ -469,6 +474,16 @@ async function handleViewSubmission(supabase, config, payload, res) {
     }
   }
   return;
+}
+
+function parseSlackInteractionPayload(req) {
+  const raw = req.rawBody ?? '';
+  const contentType = String(req.headers['content-type'] ?? '');
+  if (contentType.includes('application/json')) {
+    return JSON.parse(raw || '{}');
+  }
+  const params = new URLSearchParams(raw);
+  return JSON.parse(params.get('payload') ?? '{}');
 }
 
 function verifySlackRequest(req, signingSecret) {
