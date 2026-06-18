@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -8,6 +9,52 @@ import { fail, start, success } from '../utils/logger.js';
  */
 export function createSubscribeRouter(supabase, config) {
   const router = express.Router();
+  const TOKEN_EXPIRY_HOURS = 24;
+  const TOKEN_SECRET = config.NEWSLETTER_TOKEN_SECRET || 'default-secret-change-in-production';
+
+  /**
+   * Generate a signed confirmation token
+   * @param {string} email
+   * @param {string} subscriberId
+   * @returns {string}
+   */
+  function generateConfirmationToken(email, subscriberId) {
+    const timestamp = Date.now();
+    const data = `${email}:${subscriberId}:${timestamp}`;
+    const hmac = crypto.createHmac('sha256', TOKEN_SECRET);
+    hmac.update(data);
+    const signature = hmac.digest('hex');
+    return Buffer.from(`${data}:${signature}`).toString('base64');
+  }
+
+  /**
+   * Verify and decode a confirmation token
+   * @param {string} token
+   * @returns {{email: string, subscriberId: string, timestamp: number} | null}
+   */
+  function verifyConfirmationToken(token) {
+    try {
+      const decoded = Buffer.from(token, 'base64').toString('utf-8');
+      const parts = decoded.split(':');
+      if (parts.length !== 4) return null;
+
+      const [email, subscriberId, timestamp, signature] = parts;
+      const data = `${email}:${subscriberId}:${timestamp}`;
+      const hmac = crypto.createHmac('sha256', TOKEN_SECRET);
+      hmac.update(data);
+      const expectedSignature = hmac.digest('hex');
+
+      if (signature !== expectedSignature) return null;
+
+      const tokenAge = Date.now() - parseInt(timestamp, 10);
+      const expiryMs = TOKEN_EXPIRY_HOURS * 60 * 60 * 1000;
+      if (tokenAge > expiryMs) return null;
+
+      return { email, subscriberId, timestamp: parseInt(timestamp, 10) };
+    } catch (error) {
+      return null;
+    }
+  }
 
   router.post('/newsletter/subscribe', express.json(), async (req, res) => {
     start('POST /api/newsletter/subscribe');
@@ -53,7 +100,8 @@ export function createSubscribeRouter(supabase, config) {
           '../integrations/resend.js'
         );
         const resend = createResendClient(config.RESEND_API_KEY);
-        const confirmUrl = `https://fintechlaw.ai/subscribe/confirm?email=${encodeURIComponent(email)}`;
+        const confirmToken = generateConfirmationToken(email, subscriberId);
+        const confirmUrl = `https://fintechlaw.ai/subscribe/confirm?token=${encodeURIComponent(confirmToken)}`;
         await sendNewsletterEmail(resend, {
           from: config.RESEND_FROM_EMAIL,
           to: [email],
@@ -72,12 +120,18 @@ export function createSubscribeRouter(supabase, config) {
   });
 
   router.get('/newsletter/subscribe/confirm', async (req, res) => {
-    const email = String(req.query.email ?? '').trim().toLowerCase();
-    if (!email) return res.status(400).send('Missing email');
+    const token = String(req.query.token ?? '').trim();
+    if (!token) return res.status(400).send('Missing or invalid confirmation token');
+
+    const tokenData = verifyConfirmationToken(token);
+    if (!tokenData) return res.status(400).send('Invalid or expired confirmation token');
+
+    const { email, subscriberId } = tokenData;
 
     const { data: sub } = await supabase
       .from('subscribers')
       .select('id')
+      .eq('id', subscriberId)
       .eq('email', email)
       .maybeSingle();
 
