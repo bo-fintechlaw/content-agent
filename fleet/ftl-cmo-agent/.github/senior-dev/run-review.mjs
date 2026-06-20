@@ -9,6 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import Anthropic from '@anthropic-ai/sdk';
 
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.log('Senior dev review: ANTHROPIC_API_KEY not set — skipping');
+  process.exit(0);
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, '../..');
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
