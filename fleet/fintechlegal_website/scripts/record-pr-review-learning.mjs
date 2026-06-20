@@ -30,7 +30,10 @@ if (!secret) {
 }
 
 if (!baseUrl) fail('CTO_AGENT_BASE_URL is required');
-if (!fs.existsSync(inputPath)) fail(`missing review output: ${inputPath}`);
+if (!fs.existsSync(inputPath)) {
+  console.log(`record-pr-review-learning: missing review output (${inputPath}) — skipping`);
+  process.exit(0);
+}
 
 const reviewPayload = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
 const endpoint = process.env.CTO_LEARNING_ENDPOINT ?? '/api/learnings/pr-review';
