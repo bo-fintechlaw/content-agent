@@ -24,7 +24,6 @@ jobs:
           node-version: "20"
 
       - name: Install Anthropic SDK
-        working-directory: ftl-content-agent
         run: npm install @anthropic-ai/sdk@^0.39.0
 
       - name: Run senior dev review
