@@ -24,8 +24,12 @@ function fail(message) {
   process.exit(1);
 }
 
+if (!secret) {
+  console.log('record-pr-review-learning: CTO_AGENT_TASK_SECRET not set — skipping');
+  process.exit(0);
+}
+
 if (!baseUrl) fail('CTO_AGENT_BASE_URL is required');
-if (!secret) fail('CTO_AGENT_TASK_SECRET is required');
 if (!fs.existsSync(inputPath)) fail(`missing review output: ${inputPath}`);
 
 const reviewPayload = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
