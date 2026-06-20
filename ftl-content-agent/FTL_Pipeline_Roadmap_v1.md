@@ -107,7 +107,14 @@ Fleet Supabase `wrxuyabngyaiujgcfexj`:
 | The Financial Edge | `financial_services` | financial_services, regulatory, crypto, fintech |
 | The Startup Solution | `tech_ai_legal` | ai_legal_tech, legal_engineering, startup |
 
-Biweekly alternating (Week A / Week B). Calendar: Notion `NOTION_DB_CONTENT_CALENDAR`.
+Biweekly per segment (staggered anchors, both on Thursdays 7:30 AM ET):
+
+| Newsletter | segment key | First issue | Then |
+|---|---|---|---|
+| The Financial Edge | `financial_services` | 2026-06-18 | Every 14 days |
+| The Startup Solution | `tech_ai_legal` | 2026-06-25 | Every 14 days |
+
+Schedule logic: `src/utils/newsletter-schedule.js`. Calendar: Notion `NOTION_DB_CONTENT_CALENDAR`.
 
 ### 3.4 Email + list
 
@@ -136,7 +143,7 @@ Documented in `INTERFACE.md`:
 
 ### 3.8 Cron
 
-- Thursday 7:30 AM ET: `CMO_ASSEMBLE_URL` when `ENABLE_NEWSLETTER=true`
+- Thursday 7:30 AM ET: `CMO_ASSEMBLE_URL` when `ENABLE_NEWSLETTER=true` — only fires for segments due that day (biweekly from anchors above); POST body `{ segment, issue_date }`
 - Resend webhooks → `issue_metrics`
 
 ### 3.9 Fleet repos
