@@ -3,7 +3,7 @@ import express from 'express';
 import cron from 'node-cron';
 import { validateEnv } from './config/env.js';
 import { initializeMcpConnections } from '../dist/mcp/mcpManager.js';
-import { createSupabaseClient } from './db/supabase.js';
+import { createSupabaseClient, createFleetSupabaseClient } from './db/supabase.js';
 import { createApiRouter } from './routes/api.js';
 import { createSlackWebhookRouter } from './routes/webhooks.js';
 import { runSourceScan } from './pipeline/scanner.js';
@@ -23,6 +23,7 @@ import {
 import { runFeedHealthCheck } from './utils/feed-health.js';
 import { fail, start, success } from './utils/logger.js';
 import { withCronRun } from './utils/cron-runs.js';
+import axios from 'axios';
 
 // Prefer project .env over inherited shell vars.
 dotenv.config({ override: true });
@@ -60,13 +61,21 @@ async function main() {
     config.SUPABASE_URL,
     config.SUPABASE_SERVICE_KEY
   );
+  const fleetSupabaseClient = createFleetSupabaseClient(config);
+  if (!fleetSupabaseClient) {
+    console.warn(
+      '[ftl-content-agent] SUPABASE_FLEET_URL / SUPABASE_FLEET_SERVICE_KEY not set — newsletter routes disabled'
+    );
+  }
 
   const app = express();
   app.locals.cron = cron;
-  app.use(express.json());
 
   registerLinkedInOAuthDevCallback(app, config);
+  // Mount Slack before express.json() so /slack/* routes keep the raw body for
+  // signing-secret verification (url_verification uses application/json).
   app.use('/slack', createSlackWebhookRouter(supabaseClient, config));
+  app.use(express.json());
 
   app.get('/health', (_req, res) => {
     start('GET /health');
@@ -75,7 +84,7 @@ async function main() {
     res.status(200).json({ status: 'ok', timestamp });
   });
 
-  app.use('/api', createApiRouter(supabaseClient, config));
+  app.use('/api', createApiRouter(supabaseClient, config, fleetSupabaseClient));
 
   const server = app.listen(config.PORT, () => {
     success('main', {
@@ -263,6 +272,26 @@ async function main() {
     },
     { timezone: 'America/New_York' }
   );
+
+  // Newsletter — Thursday 7:30 AM ET: trigger CMO assemble (review in Slack, not Friday PM)
+  if (config.ENABLE_NEWSLETTER && config.CMO_ASSEMBLE_URL) {
+    cron.schedule(
+      '30 7 * * 4',
+      async () => {
+        start('cron:newsletterAssemble');
+        try {
+          await withCronRun(supabaseClient, 'cron:newsletterAssemble', async () => {
+            const res = await axios.post(config.CMO_ASSEMBLE_URL, {}, { timeout: 120_000 });
+            success('cron:newsletterAssemble', { status: res.status });
+            return { status: res.status, data: res.data };
+          });
+        } catch (e) {
+          fail('cron:newsletterAssemble', e);
+        }
+      },
+      { timezone: 'America/New_York' }
+    );
+  }
 
   server.on('error', (err) => {
     fail('main', err);

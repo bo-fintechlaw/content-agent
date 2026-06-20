@@ -10,6 +10,10 @@ import {
 } from './citation-harvest.js';
 import { runCitationVerificationSubagent } from './citation-subagent.js';
 import {
+  inferPrimarySourceUrlFromDraft,
+  isRecoverablePrejudgeBlockedDraft,
+} from './prejudge-primary.js';
+import {
   computeJudgeComposite,
   normalizeJudgeScores as normalizeJudgeScoresFromVerdict,
 } from './verdict.js';
@@ -60,7 +64,11 @@ export async function runDraftAndJudge(supabase, config, options = {}) {
       let draftId = draftResult.draftId || null;
       if (!draftResult.drafted) {
         // If an unjudged draft already exists, continue pipeline on that draft id.
-        if (draftResult.reason === 'unjudged_draft_exists' && draftId) {
+        if (
+          (draftResult.reason === 'unjudged_draft_exists' ||
+            draftResult.reason === 'prejudge_blocked_recoverable') &&
+          draftId
+        ) {
           const precheck = await runPreJudgeQualityChecks(supabase, config, draftId);
           if (precheck.blocked) {
             attempts.push({ pass, draftId, draft: draftResult, precheck, judge: null });
@@ -147,6 +155,115 @@ export async function runDraftAndJudge(supabase, config, options = {}) {
   }
 }
 
+/**
+ * Recover a prejudge-blocked draft (missing topic source_url) and run judge → Slack.
+ * Does not create a new draft — reuses the latest row for the topic.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Record<string, any>} config
+ * @param {{ topicId?: string, draftId?: string }} [options]
+ */
+export async function recoverTopicReview(supabase, config, options = {}) {
+  const topicId = String(options.topicId ?? '').trim();
+  const draftId = String(options.draftId ?? '').trim();
+  start('recoverTopicReview', { topicId: topicId || undefined, draftId: draftId || undefined });
+
+  try {
+    if (!topicId && !draftId) {
+      throw new Error('Missing topicId or draftId');
+    }
+
+    let draft;
+    if (draftId) {
+      const { data, error } = await supabase
+        .from('content_drafts')
+        .select(
+          'id,topic_id,blog_title,blog_slug,blog_body,linkedin_post,image_prompt,judge_pass,judge_scores,judge_flags,content_topics!inner(id,title,source_url)'
+        )
+        .eq('id', draftId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      draft = data;
+    } else {
+      const { data, error } = await supabase
+        .from('content_drafts')
+        .select(
+          'id,topic_id,blog_title,blog_slug,blog_body,linkedin_post,image_prompt,judge_pass,judge_scores,judge_flags,content_topics!inner(id,title,source_url)'
+        )
+        .eq('topic_id', topicId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      draft = data;
+    }
+
+    if (!draft) {
+      success('recoverTopicReview', { reason: 'draft_not_found' });
+      return { recovered: false, reason: 'draft_not_found' };
+    }
+
+    const inferred = inferPrimarySourceUrlFromDraft(draft);
+    if (inferred) {
+      await supabase
+        .from('content_topics')
+        .update({
+          source_url: inferred,
+          status: 'judging',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', draft.topic_id);
+      if (draft.content_topics) {
+        draft.content_topics.source_url = inferred;
+      }
+    } else if (!String(draft.content_topics?.source_url ?? '').trim()) {
+      success('recoverTopicReview', { reason: 'no_source_url_to_infer', draftId: draft.id });
+      return { recovered: false, reason: 'no_source_url_to_infer', draftId: draft.id };
+    }
+
+    if (draft.judge_pass === false && draft.judge_scores == null) {
+      const keptFlags = (Array.isArray(draft.judge_flags) ? draft.judge_flags : []).filter(
+        (f) => typeof f === 'string' && !f.startsWith('prejudge:')
+      );
+      await supabase
+        .from('content_drafts')
+        .update({ judge_pass: null, judge_flags: keptFlags })
+        .eq('id', draft.id);
+      draft.judge_pass = null;
+      draft.judge_flags = keptFlags;
+    } else if (draft.judge_pass != null && draft.judge_scores != null) {
+      success('recoverTopicReview', { reason: 'already_judged', draftId: draft.id });
+      return {
+        recovered: false,
+        reason: 'already_judged',
+        draftId: draft.id,
+        pass: draft.judge_pass,
+      };
+    }
+
+    const precheck = await runPreJudgeQualityChecks(supabase, config, draft.id);
+    if (precheck.blocked) {
+      success('recoverTopicReview', { recovered: false, draftId: draft.id, precheck });
+      return { recovered: false, draftId: draft.id, precheck };
+    }
+
+    const judge = await runJudging(supabase, config, {
+      draftId: draft.id,
+      preverifiedLinkContext: precheck.linkContext ?? null,
+    });
+    success('recoverTopicReview', {
+      recovered: !!judge?.judged,
+      draftId: draft.id,
+      judged: judge?.judged,
+      deferred: judge?.deferred,
+    });
+    return { recovered: !!judge?.judged, draftId: draft.id, precheck, judge, inferredSourceUrl: inferred || null };
+  } catch (error) {
+    fail('recoverTopicReview', error, { topicId, draftId });
+    throw error;
+  }
+}
+
 async function sendRevisedDraftToSlackReview(supabase, config, draftId) {
   const { data: draft, error: dErr } = await supabase
     .from('content_drafts')
@@ -200,6 +317,33 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
   if (error) throw new Error(error.message);
   if (!draft) return { blocked: true, reason: 'draft_not_found' };
 
+  if (isRecoverablePrejudgeBlockedDraft(draft)) {
+    const inferred = inferPrimarySourceUrlFromDraft(draft);
+    if (inferred) {
+      await supabase
+        .from('content_topics')
+        .update({
+          source_url: inferred,
+          status: 'judging',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', draft.topic_id);
+      const keptFlags = (Array.isArray(draft.judge_flags) ? draft.judge_flags : []).filter(
+        (f) => typeof f === 'string' && !f.startsWith('prejudge:')
+      );
+      await supabase
+        .from('content_drafts')
+        .update({ judge_pass: null, judge_flags: keptFlags })
+        .eq('id', draftId);
+      if (draft.content_topics) {
+        draft.content_topics.source_url = inferred;
+      }
+      draft.judge_pass = null;
+      draft.judge_flags = keptFlags;
+      success('runPreJudgeQualityChecks:recovered', { draftId, inferred });
+    }
+  }
+
   start('runPreJudgeQualityChecks:format');
   const updates = {};
   const normalizedSections = normalizeBlogBody(draft.blog_body);
@@ -247,6 +391,19 @@ async function runPreJudgeQualityChecks(supabase, config, draftId) {
   if (updateErr) throw new Error(updateErr.message);
 
   if (!citationGate.blocked) {
+    const topicSource = String(draft.content_topics?.source_url ?? '').trim();
+    if (!topicSource) {
+      const inferred = inferPrimarySourceUrlFromDraft({
+        ...draft,
+        blog_body: updates.blog_body,
+      });
+      if (inferred) {
+        await supabase
+          .from('content_topics')
+          .update({ source_url: inferred, updated_at: new Date().toISOString() })
+          .eq('id', draft.topic_id);
+      }
+    }
     // Propagate the citation context out so runJudging can skip the redundant pass.
     success('runPreJudgeQualityChecks:compile', { draftId });
     success('runPreJudgeQualityChecks', { draftId, blocked: false });
@@ -342,7 +499,10 @@ async function enforceCitationRequirements({
   model,
   enforce,
 }) {
-  const primary = String(topicSourceUrl ?? '').trim();
+  let primary = String(topicSourceUrl ?? '').trim();
+  if (!primary) {
+    primary = inferPrimarySourceUrlFromDraft(draft);
+  }
   const extracted = extractHttpUrlsFromDraft(draft);
   const candidates = [...new Set([primary, ...extracted].filter(Boolean))].slice(0, 12);
   const fetches = await fetchAllCitationPreviews(candidates);

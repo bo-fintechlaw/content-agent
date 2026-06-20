@@ -3,7 +3,7 @@ import { CircuitBreaker } from '../utils/circuit-breaker.js';
 import { tpmBudget, estimateInputTokens } from '../utils/tpm-budget.js';
 import { fail, start, success } from '../utils/logger.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-opus-4-8'; // pragma: allowlist secret // pragma: allowlist secret
 
 /**
  * Per-model circuit breakers. Anthropic rate limits are enforced per-model,
@@ -23,6 +23,25 @@ function getBreaker(model) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
+
+/**
+ * Opus 4.7+ rejects temperature, top_p, and top_k (400 if set).
+ * @see https://platform.claude.com/docs/en/about-claude/model-deprecations
+ * @param {string} model
+ */
+export function modelSupportsSamplingParams(model) {
+  const m = String(model ?? '').toLowerCase();
+  if (/claude-opus-4-(7|8|9)/.test(m)) return false;
+  if (m.includes('opus-4-7') || m.includes('opus-4-8')) return false;
+  return true;
+}
+
+/** @param {Record<string, unknown>} base */
+function withOptionalTemperature(base, model, temperature) {
+  if (!modelSupportsSamplingParams(model)) return base;
+  if (temperature == null) return base;
+  return { ...base, temperature };
+}
 
 /**
  * Retry the underlying messages.create call with exponential backoff + jitter
@@ -99,13 +118,18 @@ export async function promptJson(client, args) {
   const result = await breaker.execute(
     async () =>
       callWithBackoff(async () => {
-        const resp = await client.messages.create({
-          model,
-          max_tokens: args.maxTokens ?? 1800,
-          temperature: args.temperature ?? 0.2,
-          system: args.system,
-          messages: [{ role: 'user', content: args.user }],
-        });
+        const resp = await client.messages.create(
+          withOptionalTemperature(
+            {
+              model,
+              max_tokens: args.maxTokens ?? 1800,
+              system: args.system,
+              messages: [{ role: 'user', content: args.user }],
+            },
+            model,
+            args.temperature ?? 0.2
+          )
+        );
         tpmBudget.record(model, resp.usage?.input_tokens ?? estimate);
         const text =
           resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
@@ -153,20 +177,25 @@ export async function promptWithWebSearchJson(client, args) {
   const result = await breaker.execute(
     async () =>
       callWithBackoff(async () => {
-        const resp = await client.messages.create({
-          model,
-          max_tokens: args.maxTokens ?? 4_000,
-          temperature: args.temperature ?? 0.1,
-          system: args.system,
-          tools: [
+        const resp = await client.messages.create(
+          withOptionalTemperature(
             {
-              type: 'web_search_20250305',
-              name: 'web_search',
-              max_uses: maxSearches,
+              model,
+              max_tokens: args.maxTokens ?? 4_000,
+              system: args.system,
+              tools: [
+                {
+                  type: 'web_search_20250305',
+                  name: 'web_search',
+                  max_uses: maxSearches,
+                },
+              ],
+              messages: [{ role: 'user', content: args.user }],
             },
-          ],
-          messages: [{ role: 'user', content: args.user }],
-        });
+            model,
+            args.temperature ?? 0.1
+          )
+        );
         tpmBudget.record(model, resp.usage?.input_tokens ?? estimate);
         const text =
           resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??

@@ -61,188 +61,91 @@ Total: ~2-3 hours including testing. No new external dependencies.
 
 ---
 
-## 3. Newsletter module — biweekly to start
+## 3. Newsletter module — v2 (CMO + content-agent, Resend)
 
-**Decision: build as a new pipeline stage in the same repo, not a separate agent.**
+**Supersedes v1 in-repo curator/composer/judge/Beehiiv design.** See Newsletter Automation v2 integration plan.
 
-A newsletter is a different artifact (curatorial, not analytical) but shares ~70% of its infrastructure with the blog pipeline: voice fingerprint, Anthropic client, Slack approval flow, Sanity-adjacent data model, judge pattern. A separate repo doubles deploy/CI overhead for no benefit at this scale.
+**Architecture:** CMO assembles Issue JSON → content-agent `render_newsletter_issue` → Bo approves `newsletter_issue_draft` in `#cmo-bo` (`C0BB9U7AN0Y`) via `@ftl/agent-core` → content-agent publishes.
 
 ### 3.1 Pipeline shape
 
 ```
-content_drafts (past 14 days, judge_pass=true, published)
+Notion editorial calendar
         │
         ▼
-  Curator agent ──── selects 3-5 drafts (diversity + relevance)
+  CMO (ftl-cmo-agent) ── blog GROQ from published_posts_index
         │
         ▼
-  Composer agent ── writes intro, outro, per-post summaries, "also worth attention"
+  Issue JSON + compliance linter (deterministic)
         │
         ▼
-  Newsletter Judge ─ separate criteria from blog judge
+  delegate_to_agent('content', 'render_newsletter_issue')
         │
         ▼
-  Slack approval ── preview message with Approve / Edit / Schedule / Reject
+  content-agent ── Sanity preview, test email, carousel, Resend
         │
         ▼
-  Email service ─── Beehiiv / ConvertKit / Mailchimp API
+  agent_action: newsletter_issue_draft → #cmo-bo (shadow, ceiling approve)
         │
         ▼
-  Analytics ─────── 24h + 7d open/click stats stored against the issue
+  Bo Approve → publish (Sanity + Resend broadcast + LinkedIn/X)
 ```
 
-### 3.2 Database
+### 3.2 Database (migrations 015–016)
 
-New tables in `src/db/migrations/008_*.sql`:
+Fleet Supabase `wrxuyabngyaiujgcfexj`:
 
-```sql
-content_newsletters (
-  id              UUID PRIMARY KEY,
-  issue_number    INTEGER,
-  subject_line    TEXT,
-  preview_text    TEXT,           -- inbox snippet
-  intro_body      TEXT,           -- Bo's personal intro (Markdown)
-  outro_body      TEXT,           -- Bo's personal outro
-  draft_ids       UUID[],         -- featured posts, in display order
-  manual_items    JSONB,          -- "also worth attention" — title + url + 2-sentence summary
-  status          TEXT,           -- 'draft', 'review', 'approved', 'scheduled', 'sent', 'failed'
-  email_provider  TEXT,           -- 'beehiiv', 'convertkit', 'mailchimp'
-  campaign_id     TEXT,           -- provider's ID after send
-  scheduled_for   TIMESTAMPTZ,
-  sent_at         TIMESTAMPTZ,
-  subscriber_count_at_send INTEGER,
-  created_at      TIMESTAMPTZ DEFAULT now(),
-  updated_at      TIMESTAMPTZ
-)
+- `newsletter_issues` — canonical Issue JSON + render/publish state
+- `subscribers`, `subscription_events` — consent + double opt-in
+- `issue_metrics` — Resend webhooks + social/GA4 joins
+- RLS: service-role only (016)
 
-content_newsletter_analytics (
-  id                    UUID PRIMARY KEY,
-  newsletter_id         UUID REFERENCES content_newsletters,
-  measured_at           TIMESTAMPTZ,
-  measurement_window    TEXT,     -- '24h', '7d'
-  delivered             INTEGER,
-  opens                 INTEGER,
-  unique_opens          INTEGER,
-  clicks                INTEGER,
-  unique_clicks         INTEGER,
-  bounces               INTEGER,
-  unsubscribes          INTEGER,
-  click_breakdown       JSONB     -- per-link click counts
-)
-```
+### 3.3 Segments
 
-### 3.3 Curator stage (`src/pipeline/newsletter-curator.js`)
-
-LLM call given a list of candidate drafts (title + slug + first paragraph + judge composite + category) from the past 14 days. Selects 3-5 to feature with rationale.
-
-Selection criteria, ordered:
-
-1. **Practice diversity** — no two on the same regulatory subject (avoid two stablecoin posts back-to-back).
-2. **Recency mix** — at least one from the last 5 days, at least one earlier.
-3. **Composite ≥ 8.0** — only feature posts that passed cleanly without revision-loop drama.
-4. **Engagement signal** — if LinkedIn impressions data is available (post-Phase-3), prefer high-performing posts.
-
-If fewer than 3 eligible drafts exist, the cron skips the issue and notifies Slack ("not enough material this fortnight; consider /suggest some catch-up topics").
-
-### 3.4 Composer stage (`src/pipeline/newsletter-composer.js`)
-
-Takes the curator output + 0-3 manual items (from `/suggest newsletter <url>`). Generates:
-
-- **Subject line** — 30-50 chars, scroll-stopping. Lead with a number or named regulator if possible. NO clickbait, NO "Don't miss…" formulations.
-- **Preview text** — 90-130 chars, fills the inbox preview pane. Should NOT duplicate the subject line.
-- **Personal intro** (1-2 paragraphs) — Bo's voice, slightly more personal than blog. Ties the issue's posts together with a thread or theme.
-- **Per-post summary** — 2-3 sentences per featured post + a "Read more →" link to the published blog URL. NOT a recap; should give the reader a reason to click.
-- **"Also worth your attention"** section (optional) — manual items, 1-2 sentences each.
-- **Personal outro** (1 paragraph) — what Bo is watching next, optional ask (consultation / referral / share).
-- **Footer** — disclaimer + unsubscribe link (CAN-SPAM compliance).
-
-### 3.5 Newsletter prompt (`src/prompts/newsletter-system.js`)
-
-Distinct from `drafter-system.js`. Different voice calibration:
-
-- More personal, less analytical. "This week I noticed…" instead of "The SEC just issued…"
-- Curatorial framing: positions Bo as a guide through the noise, not the lecturer.
-- Permitted: first-person editorializing ("I think the most underrated story this issue is…")
-- Banned: same banned phrases as blog ("navigate the complex landscape" etc.) + fabricated anecdotes rule still applies (Bo is the author, but the LLM doesn't invent specific people / conversations / clients).
-
-### 3.6 Newsletter Judge
-
-Lighter than the blog judge because the linked posts already passed the blog judge. Criteria:
-
-| Criterion | Weight | What it checks |
+| Newsletter | segment key | Categories |
 |---|---|---|
-| Voice match | 1.5× | Bo's newsletter voice, no banned phrases, no fabricated anecdotes |
-| Hook strength | 1.0× | Subject line + intro grab attention; preview text complements rather than duplicates |
-| Curation diversity | 1.0× | The 3-5 picks are not redundant; the issue tells a thematic story |
-| Summary specificity | 1.0× | Each post summary gives a concrete reason to click; no generic recaps |
-| Compliance | 1.5× | Disclaimer present; no legal-advice claims; no contradictions with the source posts |
+| The Financial Edge | `financial_services` | financial_services, regulatory, crypto, fintech |
+| The Startup Solution | `tech_ai_legal` | ai_legal_tech, legal_engineering, startup |
 
-Composite + verdict computed in code (same `verdict.js` pattern as Phase 1).
+Biweekly alternating (Week A / Week B). Calendar: Notion `NOTION_DB_CONTENT_CALENDAR`.
 
-### 3.7 Slack approval flow
+### 3.4 Email + list
 
-Reuses `sendReviewMessage` pattern from blog flow but with newsletter-specific buttons:
+- **Resend** Broadcasts + Audiences (not Beehiiv)
+- Zoho CSV → `subscribers` as `unconfirmed` → re-permission via `scripts/send-zoho-repermission.mjs`
+- Subscribe API: `POST /api/newsletter/subscribe` with double opt-in confirm
 
-- **Approve & schedule** — opens a date picker (defaults to next Sunday 6 PM ET)
-- **Approve & send now** — fires immediate send via email provider API
-- **Request edits** — text input for feedback; one composer revision pass
-- **Reject this issue** — marks status=failed, no send, no retry
+### 3.5 Content-agent task API
 
-### 3.8 Email provider — recommendation: Beehiiv
+Documented in `INTERFACE.md`:
 
-| Provider | Pros | Cons |
-|---|---|---|
-| **Beehiiv** ★ | Newsletter-native, clean API, free up to 2,500 subs, built-in subscribe page, analytics included | Newer; smaller integration ecosystem |
-| ConvertKit | Mature creator-focused, good automation | $29/mo at the entry tier; complex segmenting needed for legal-newsletter case |
-| Mailchimp | Well-known, broad integrations | Heavyweight API; pricing scales aggressively |
-| Substack | Effortless, audience built in | No API, no automation, can't programmatically send |
+- `POST /api/tasks/render-newsletter-issue`
+- `POST /api/tasks/publish-newsletter-issue`
+- `POST /api/newsletter/lint`
 
-Beehiiv is the recommended starting point. Migration path: subscribers can be CSV-imported from any other provider later if needed.
+### 3.6 Slack approval
 
-API surface needed:
-- `POST /v2/publications/{pub_id}/posts` — create draft
-- `PUT /v2/publications/{pub_id}/posts/{post_id}/schedule` — schedule send
-- `GET /v2/publications/{pub_id}/posts/{post_id}/stats` — pull analytics
+**Not** blog-channel `sendReviewMessage`. Newsletter uses agent-core card in `#cmo-bo`: Approve / Edit / Discard. `newsletter_issue_draft` is `NEVER_AUTO`.
 
-All env-driven (`BEEHIIV_API_KEY`, `BEEHIIV_PUBLICATION_ID`).
+### 3.7 Site (fintechlegal_website)
 
-### 3.9 Cron schedule
+- Sanity `newsletter` schema
+- `/newsletter/[slug]` indexable archive + JSON-LD
+- Canonical middleware strips `utm_*`
+- Scaffold: `fleet/fintechlegal_website/`
 
-Default biweekly:
+### 3.8 Cron
 
-- **Friday 4 PM ET** (every other week) — curator + composer + judge run; Slack approval message goes out. Gives Bo the weekend to review.
-- **Sunday 6 PM ET** (the same week) — if approved-and-scheduled, send fires.
-- **Monday 9 AM ET + Friday 9 AM ET (one week later)** — analytics pulls (24h + 7d windows).
+- Thursday 7:30 AM ET: `CMO_ASSEMBLE_URL` when `ENABLE_NEWSLETTER=true`
+- Resend webhooks → `issue_metrics`
 
-Configurable: `NEWSLETTER_CADENCE_DAYS` (14 default, 7 for weekly), `NEWSLETTER_DRAFT_CRON`, `NEWSLETTER_SEND_DEFAULT_HOUR`.
+### 3.9 Fleet repos
 
-### 3.10 Manual injection into a newsletter
+- `bo-fintechlaw/ftl-cmo-agent` — CMO newsletter slice (standalone repo)
+- `~/ftl-agent-core` — delegation, actions, Slack cards, autonomy ceilings
+- `fleet/fintechlegal_website/` — site track
 
-Reuses the `/suggest` Slack command from §2 with a `newsletter` flag:
-
-```
-/suggest newsletter <url>            ← adds to next issue's "also worth attention"
-/suggest newsletter pair <url1> with <url2>   ← Bo's editorial picks
-```
-
-Items added this way go into `content_newsletters.manual_items` for the upcoming issue.
-
-### 3.11 Build estimate
-
-| Module | LOC | Hours |
-|---|---|---|
-| Migration 008 (newsletter tables) | ~80 | 0.5 |
-| `pipeline/newsletter-curator.js` | ~150 | 2 |
-| `pipeline/newsletter-composer.js` | ~200 | 3 |
-| `prompts/newsletter-system.js` | ~120 | 1 |
-| `pipeline/newsletter-judge.js` | ~150 | 2 |
-| `integrations/beehiiv.js` | ~150 | 2 |
-| Slack approval flow extension | ~80 | 1 |
-| Cron wiring + analytics pulls | ~80 | 1 |
-| Tests (unit + integration) | ~250 | 3 |
-| **Total** | ~1,260 | **~16 hours** |
-
-Approximately 2 working days. Can ship behind a feature flag (`ENABLE_NEWSLETTER=false` by default) and turned on once the first issue clears Slack approval cleanly.
+Ship behind `ENABLE_NEWSLETTER=false` until first shadow issue clears Bo review.
 
 ---
 
@@ -271,9 +174,9 @@ Estimated 4-6 hours and adds a meaningful new failure surface (Gmail auth expira
 | 5 | LinkedIn CSV import (first run) — populates ranker hints w/ post performance | ~0.5 | ⏳ awaiting Bo's export |
 | 6 | Sanity-driven backfill of `published_posts_index` (covers pre-agent blogs) | ~2 | ⏳ unblocks GSC page→draft attribution |
 | 7 | Slack `/suggest` command | ~3 | ⏳ next planned build |
-| 8 | Newsletter module (behind `ENABLE_NEWSLETTER=false` flag) | ~16 | ⏳ after #7 |
+| 8 | Newsletter module (CMO assembles → content-agent renders; Resend + fleet Supabase) | ~16 | ⏳ in progress |
 | 9 | First newsletter issue (manually triggered, full review cycle) | ~2 | ⏳ after #8 |
-| 10 | Newsletter cron auto-runs biweekly | — | ⏳ after #9 |
+| 10 | Newsletter cron auto-runs Thursday 7:30 AM ET | — | ⏳ after #9 |
 | 11 | Title/meta CTR fix loop for poor-CTR top-ranked pages | ~4 | ⏳ defer until ≥2 weeks of imported data |
 | 12 | Email ingestion (regulator forwards) | ~6 | ⏳ only if `/suggest` proves insufficient |
 | 13 | Enzio company-page posting + topic-routed content variants | ~6 | ⏳ deferred per 2026-05-08 decision |

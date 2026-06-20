@@ -67,6 +67,16 @@ const OPTIONAL_STRING = [
   'NOTION_DB_REGULATORY_TRACKER',
   'NOTION_DB_ACTIVITY_LOG',
   'APP_BASE_URL',
+  'RESEND_API_KEY',
+  'RESEND_AUDIENCE_ID',
+  'RESEND_FROM_EMAIL',
+  'NEWSLETTER_TEST_EMAIL',
+  'NEWSLETTER_TASK_SECRET',
+  'SLACK_CMO_BO_CHANNEL_ID',
+  'ENABLE_NEWSLETTER',
+  'CMO_ASSEMBLE_URL',
+  'SUPABASE_FLEET_URL',
+  'SUPABASE_FLEET_SERVICE_KEY',
 ];
 
 /**
@@ -118,7 +128,7 @@ export function validateEnv() {
 
   // Subagent (citation + claim verification) defaults to Haiku so it draws
   // from a separate per-model rate-limit bucket from the main drafter/judge
-  // running on Sonnet. Override with ANTHROPIC_SUBAGENT_MODEL if needed.
+  // running on Opus. Override with ANTHROPIC_SUBAGENT_MODEL if needed.
   const tpmLimitRaw = (optional.ANTHROPIC_TPM_LIMIT ?? '').trim();
   const tpmLimit = Number.parseInt(tpmLimitRaw, 10);
   const subagentTpmLimitRaw = (optional.ANTHROPIC_SUBAGENT_TPM_LIMIT ?? '').trim();
@@ -126,10 +136,10 @@ export function validateEnv() {
 
   const config = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    ANTHROPIC_MODEL: optional.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+    ANTHROPIC_MODEL: optional.ANTHROPIC_MODEL || 'claude-opus-4-8', // pragma: allowlist secret // pragma: allowlist secret
     ANTHROPIC_SUBAGENT_MODEL:
       optional.ANTHROPIC_SUBAGENT_MODEL || 'claude-haiku-4-5-20251001',
-    // Tier-1 input-token-per-minute caps (Sonnet 30k, Haiku 50k as of 2026-Q2).
+    // Tier-1 input-token-per-minute caps (Opus ~30k, Haiku ~50k as of 2026-Q2).
     // We hold below the hard ceiling so the in-process budget guard sleeps
     // before Anthropic 429s us. Override per env if the account tier changes.
     ANTHROPIC_TPM_LIMIT: Number.isFinite(tpmLimit) && tpmLimit > 0 ? tpmLimit : 25_000,
@@ -230,6 +240,26 @@ export function validateEnv() {
     enableXPostingRaw === ''
       ? false
       : ['1', 'true', 'yes', 'y'].includes(String(enableXPostingRaw).toLowerCase());
+
+  config.RESEND_API_KEY = (optional.RESEND_API_KEY ?? '').trim();
+  config.RESEND_AUDIENCE_ID = (optional.RESEND_AUDIENCE_ID ?? '').trim();
+  config.RESEND_FROM_EMAIL =
+    (optional.RESEND_FROM_EMAIL ?? '').trim() || 'FinTech Law <newsletter@fintechlaw.ai>';
+  config.NEWSLETTER_TEST_EMAIL = (optional.NEWSLETTER_TEST_EMAIL ?? '').trim();
+  config.NEWSLETTER_TASK_SECRET = (optional.NEWSLETTER_TASK_SECRET ?? '').trim();
+  config.SLACK_CMO_BO_CHANNEL_ID =
+    (optional.SLACK_CMO_BO_CHANNEL_ID ?? '').trim() || 'C0BB9U7AN0Y';
+  const enableNewsletterRaw = optional.ENABLE_NEWSLETTER;
+  config.ENABLE_NEWSLETTER =
+    enableNewsletterRaw === ''
+      ? false
+      : ['1', 'true', 'yes', 'y'].includes(String(enableNewsletterRaw).toLowerCase());
+  config.CMO_ASSEMBLE_URL = (optional.CMO_ASSEMBLE_URL ?? '').trim();
+
+  // Fleet Supabase (ftl-agents / wrxuyabngyaiujgcfexj) — newsletter, subscribers, agent_tasks.
+  // Content pipeline keeps SUPABASE_URL + SUPABASE_SERVICE_KEY on the content project.
+  config.SUPABASE_FLEET_URL = (optional.SUPABASE_FLEET_URL ?? '').trim();
+  config.SUPABASE_FLEET_SERVICE_KEY = (optional.SUPABASE_FLEET_SERVICE_KEY ?? '').trim();
 
   success('validateEnv', { port, nodeEnv });
   return config;

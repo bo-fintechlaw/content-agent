@@ -37,7 +37,7 @@ for (const k of required) {
 }
 // Match the default in src/config/env.js
 if (!process.env.ANTHROPIC_MODEL) {
-  process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+  process.env.ANTHROPIC_MODEL = 'claude-opus-4-8'; // pragma: allowlist secret
 }
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);

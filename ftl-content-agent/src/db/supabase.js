@@ -24,6 +24,19 @@ export function createSupabaseClient(url, serviceKey) {
   }
 }
 
+/**
+ * Fleet Supabase client (newsletter + agent network tables).
+ * Requires SUPABASE_FLEET_URL and SUPABASE_FLEET_SERVICE_KEY.
+ * @param {Record<string, string>} config
+ * @returns {import('@supabase/supabase-js').SupabaseClient | null}
+ */
+export function createFleetSupabaseClient(config) {
+  const url = config.SUPABASE_FLEET_URL?.trim();
+  const key = config.SUPABASE_FLEET_SERVICE_KEY?.trim();
+  if (!url || !key) return null;
+  return createSupabaseClient(url, key);
+}
+
 function safeHost(url) {
   try {
     return new URL(url).host;
