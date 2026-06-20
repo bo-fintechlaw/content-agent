@@ -44,9 +44,9 @@ Job name must be **`CI`**. Steps: `npm ci` → `npm run typecheck` → `npm test
 On PR open/sync/reopen:
 
 1. `node .github/senior-dev/run-review.mjs` — independent diff review (Sonnet), posts PR comment
-2. `node scripts/record-pr-review-learning.mjs` — forwards structured review to CTO prod when `CTO_AGENT_TASK_SECRET` is configured (`if: always() && secrets.CTO_AGENT_TASK_SECRET != ''`)
+2. `node scripts/record-pr-review-learning.mjs` — forwards structured review to CTO prod when `CTO_AGENT_TASK_SECRET` is set; otherwise exits 0 with a skip message (`if: always()`)
 
-The Anthropic SDK is installed at the **repository root** so `run-review.mjs` can resolve `@anthropic-ai/sdk`. If the secret is missing (fork PRs), the learning step is skipped without failing the job.
+The Anthropic SDK is installed at the **repository root** so `run-review.mjs` can resolve `@anthropic-ai/sdk`. GitHub Actions disallows `secrets` in step `if` expressions, so missing secrets are handled inside the script.
 
 ## Hard rules
 

@@ -38,7 +38,7 @@ jobs:
         run: node .github/senior-dev/run-review.mjs
 
       - name: Record PR review learning (CTO prod)
-        if: ${{ always() && secrets.CTO_AGENT_TASK_SECRET != '' }}
+        if: always()
         env:
           CTO_AGENT_TASK_SECRET: ${{ secrets.CTO_AGENT_TASK_SECRET }}
         run: node ftl-content-agent/scripts/record-pr-review-learning.mjs .github/senior-dev/review-output.json
