@@ -1,0 +1,6 @@
+{
+  "reviewModel": "claude-sonnet-4-20250514",
+  "maxDiffBytes": 180000,
+  "learningEndpoint": "/api/learnings/pr-review",
+  "repoAgentIdEnv": "REPO_AGENT_ID"
+}
