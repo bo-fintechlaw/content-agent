@@ -2,6 +2,7 @@ import express from 'express';
 import { renderNewsletterIssue } from '../pipeline/newsletter-renderer.js';
 import { publishNewsletterIssue } from '../pipeline/newsletter-publisher.js';
 import { lintNewsletterIssue } from '../utils/newsletter-compliance-linter.js';
+import { buildNewsletterPreviewHtml } from '../utils/newsletter-preview-html.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -69,6 +70,32 @@ export function createNewsletterTaskRouter(supabase, config) {
     const issueJson = req.body?.issue_json ?? req.body;
     const lint = lintNewsletterIssue(issueJson);
     res.json({ ok: lint.pass, violations: lint.violations });
+  });
+
+  router.get('/newsletter-issues/:id/preview', async (req, res) => {
+    start('GET /api/newsletter-issues/:id/preview');
+    try {
+      const issueId = String(req.params.id ?? '').trim();
+      if (!issueId) return res.status(400).send('Missing issue id');
+
+      const { data, error } = await supabase
+        .from('newsletter_issues')
+        .select('id, status, issue_json')
+        .eq('id', issueId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data?.issue_json) return res.status(404).send('Newsletter issue not found');
+
+      const html = buildNewsletterPreviewHtml(data.issue_json, {
+        issueId: data.id,
+        status: data.status,
+      });
+      success('GET /api/newsletter-issues/:id/preview', { issueId });
+      return res.status(200).type('html').send(html);
+    } catch (error) {
+      fail('GET /api/newsletter-issues/:id/preview', error);
+      return res.status(500).send(`Preview unavailable: ${error.message}`);
+    }
   });
 
   return router;

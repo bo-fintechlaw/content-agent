@@ -128,7 +128,7 @@ export function validateEnv() {
 
   // Subagent (citation + claim verification) defaults to Haiku so it draws
   // from a separate per-model rate-limit bucket from the main drafter/judge
-  // running on Sonnet. Override with ANTHROPIC_SUBAGENT_MODEL if needed.
+  // running on Opus. Override with ANTHROPIC_SUBAGENT_MODEL if needed.
   const tpmLimitRaw = (optional.ANTHROPIC_TPM_LIMIT ?? '').trim();
   const tpmLimit = Number.parseInt(tpmLimitRaw, 10);
   const subagentTpmLimitRaw = (optional.ANTHROPIC_SUBAGENT_TPM_LIMIT ?? '').trim();
@@ -136,10 +136,10 @@ export function validateEnv() {
 
   const config = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    ANTHROPIC_MODEL: optional.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+    ANTHROPIC_MODEL: optional.ANTHROPIC_MODEL || 'claude-opus-4-8', // pragma: allowlist secret // pragma: allowlist secret
     ANTHROPIC_SUBAGENT_MODEL:
       optional.ANTHROPIC_SUBAGENT_MODEL || 'claude-haiku-4-5-20251001',
-    // Tier-1 input-token-per-minute caps (Sonnet 30k, Haiku 50k as of 2026-Q2).
+    // Tier-1 input-token-per-minute caps (Opus ~30k, Haiku ~50k as of 2026-Q2).
     // We hold below the hard ceiling so the in-process budget guard sleeps
     // before Anthropic 429s us. Override per env if the account tier changes.
     ANTHROPIC_TPM_LIMIT: Number.isFinite(tpmLimit) && tpmLimit > 0 ? tpmLimit : 25_000,

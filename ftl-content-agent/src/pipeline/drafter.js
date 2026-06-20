@@ -9,6 +9,7 @@ import {
   runResearchSubagent,
 } from './research-subagent.js';
 import { findBracketLeaksInDraft } from '../utils/bracket-leak.js';
+import { isRecoverablePrejudgeBlockedDraft } from './prejudge-primary.js';
 import { fail, start, success } from '../utils/logger.js';
 
 /**
@@ -52,6 +53,23 @@ export async function runDrafting(supabase, config, options = {}) {
       if (undErr) throw new Error(undErr.message);
       if (undecided) {
         return { drafted: false, reason: 'unjudged_draft_exists', draftId: undecided.id };
+      }
+      const { data: blockedDraft, error: blockedErr } = await supabase
+        .from('content_drafts')
+        .select('id, judge_pass, judge_scores, judge_flags')
+        .eq('topic_id', forceTopicId)
+        .eq('judge_pass', false)
+        .is('judge_scores', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (blockedErr) throw new Error(blockedErr.message);
+      if (blockedDraft && isRecoverablePrejudgeBlockedDraft(blockedDraft)) {
+        return {
+          drafted: false,
+          reason: 'prejudge_blocked_recoverable',
+          draftId: blockedDraft.id,
+        };
       }
       topic = forced;
     } else {

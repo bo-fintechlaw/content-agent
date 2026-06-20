@@ -140,7 +140,7 @@ This project uses ES modules. Always use `.js` extensions in imports, even for T
 ## Environment
 
 Required env vars are validated at startup in `src/config/env.js` — the server exits if any are missing. See `.env.example` for the full list. Key groups:
-- **Anthropic:** `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default: claude-sonnet-4-6)
+- **Anthropic:** `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default: claude-opus-4-8) <!-- pragma: allowlist secret -->
 - **Supabase:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 - **Sanity:** `SANITY_PROJECT_ID`, `SANITY_DATASET`, `SANITY_API_TOKEN`, `SANITY_SCHEMA_ID`
 - **Slack:** `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_CHANNEL_ID`

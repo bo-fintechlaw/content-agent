@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { parseIssueJson } from '../../schemas/newsletter.js';
+import { BRIEFING_AUTHOR_TITLE, parseIssueJson } from '../../schemas/newsletter.js';
 
 const mockHead = jest.fn();
 const mockGet = jest.fn();
@@ -14,11 +14,11 @@ await jest.unstable_mockModule('axios', () => ({
 const { verifyNewsletterBlogLinks } = await import('../../utils/newsletter-link-verifier.js');
 
 const ISSUE_WITH_LINKS = parseIssueJson({
-  title: 'The Financial Edge',
+  title: 'The Briefing — SEC Enforcement',
   segment: 'financial_services',
   issue_date: '2026-06-25',
-  slug: 'financial-edge-2026-06',
-  author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
+  slug: 'briefing-sec-enforcement-2026-06',
+  author: { name: 'Bo Howell', title: BRIEFING_AUTHOR_TITLE },
   intro: 'Named SEC enforcement patterns and concrete action items.',
   toc: ['SEC roundup'],
   panels: [
@@ -34,19 +34,8 @@ const ISSUE_WITH_LINKS = parseIssueJson({
       blog_url: 'https://fintechlaw.ai/blog/post-a',
     },
     {
-      kind: 'feature',
-      section_no: 2,
-      kicker: 'ANALYSIS · 02',
-      headline: 'Second story',
-      dek: 'Another dek.',
-      stats: [{ value: '3', label: 'cases' }],
-      pull_quote: 'Quote two.',
-      action_list: ['Review filings'],
-      blog_url: 'https://fintechlaw.ai/blog/post-b',
-    },
-    {
       kind: 'action_items',
-      section_no: 3,
+      section_no: 2,
       kicker: 'ACTION ITEMS',
       headline: 'What to do now',
       dek: 'Steps by firm type.',
@@ -74,7 +63,7 @@ describe('verifyNewsletterBlogLinks', () => {
     const result = await verifyNewsletterBlogLinks(ISSUE_WITH_LINKS);
     expect(result.pass).toBe(true);
     expect(result.failures).toHaveLength(0);
-    expect(mockHead).toHaveBeenCalledTimes(2);
+    expect(mockHead).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to GET when HEAD fails', async () => {
@@ -83,7 +72,7 @@ describe('verifyNewsletterBlogLinks', () => {
 
     const result = await verifyNewsletterBlogLinks(ISSUE_WITH_LINKS);
     expect(result.pass).toBe(true);
-    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(mockGet).toHaveBeenCalledTimes(1);
   });
 
   it('reports failures for broken URLs', async () => {
@@ -92,7 +81,7 @@ describe('verifyNewsletterBlogLinks', () => {
 
     const result = await verifyNewsletterBlogLinks(ISSUE_WITH_LINKS);
     expect(result.pass).toBe(false);
-    expect(result.failures).toHaveLength(2);
+    expect(result.failures).toHaveLength(1);
     expect(result.failures[0].url).toBe('https://fintechlaw.ai/blog/post-a');
   });
 

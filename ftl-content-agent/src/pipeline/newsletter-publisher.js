@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { createSanityClient } from '../integrations/sanity.js';
 import { createResendClient, sendNewsletterBroadcast } from '../integrations/resend.js';
 import {
@@ -5,6 +6,9 @@ import {
   buildNewsletterEmailText,
 } from '../emails/newsletter-issue-html.js';
 import { parseIssueJson } from '../schemas/newsletter.js';
+import { buildNewsletterSanityDocument } from './newsletter-renderer.js';
+import { enrichIssueWithHeroImages } from './newsletter-hero-enrichment.js';
+import { renderNewsletterCarousel } from '../integrations/newsletter-carousel.js';
 import { postLinkedInUgc } from '../integrations/linkedin.js';
 import { postXTweet } from '../integrations/x.js';
 import { fail, start, success } from '../utils/logger.js';
@@ -31,16 +35,23 @@ export async function publishNewsletterIssue(supabase, config, input) {
     throw new Error(`cannot publish from status=${row.status}`);
   }
 
-  const issue = parseIssueJson(row.issue_json);
-  const archiveUrl = `${PUBLIC_SITE}/newsletter/${issue.slug}`;
+  let issue = parseIssueJson(row.issue_json);
+  const archiveUrl = `${PUBLIC_SITE}/newsletters/${issue.slug}`;
   const nowIso = new Date().toISOString();
 
-  let sanityPublishedId = row.sanity_document_id;
+  let sanityClient = null;
   if (config.SANITY_PROJECT_ID && config.SANITY_API_TOKEN) {
-    const client = createSanityClient(config);
+    sanityClient = createSanityClient(config);
+  }
+  issue = await enrichIssueWithHeroImages(issue, sanityClient);
+
+  let sanityPublishedId = row.sanity_document_id;
+  if (sanityClient) {
     const draftId = row.sanity_document_id || `drafts.newsletter-${issue.slug}`;
+    const doc = buildNewsletterSanityDocument(issue);
+    await sanityClient.createOrReplace({ ...doc, _id: draftId });
     try {
-      await client.action({
+      await sanityClient.action({
         actionType: 'sanity.action.document.publish',
         draftId,
         publishedId: draftId.replace(/^drafts\./, ''),
@@ -49,6 +60,26 @@ export async function publishNewsletterIssue(supabase, config, input) {
     } catch (pubErr) {
       fail('publishNewsletterIssue:sanity', pubErr);
       throw pubErr;
+    }
+
+    if (config.NETLIFY_BUILD_HOOK) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        await axios.post(config.NETLIFY_BUILD_HOOK);
+        success('publishNewsletterIssue:netlifyRebuild', { slug: issue.slug });
+      } catch (netlifyErr) {
+        fail('publishNewsletterIssue:netlifyRebuild', netlifyErr);
+      }
+    }
+  }
+
+  let carouselUrls = row.carousel_urls ?? [];
+  if (!carouselUrls.length) {
+    try {
+      const carousel = await renderNewsletterCarousel(issue, { supabase });
+      carouselUrls = carousel.urls;
+    } catch (carouselErr) {
+      fail('publishNewsletterIssue:carousel', carouselErr, { slug: issue.slug });
     }
   }
 
@@ -112,6 +143,9 @@ export async function publishNewsletterIssue(supabase, config, input) {
       published_at: nowIso,
       sanity_document_id: sanityPublishedId,
       resend_broadcast_id: resendBroadcastId,
+      web_preview_url: archiveUrl,
+      issue_json: issue,
+      carousel_urls: carouselUrls,
       updated_at: nowIso,
     })
     .eq('id', input.issueId);

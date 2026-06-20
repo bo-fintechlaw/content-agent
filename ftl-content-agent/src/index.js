@@ -75,10 +75,12 @@ async function main() {
 
   const app = express();
   app.locals.cron = cron;
-  app.use(express.json());
 
   registerLinkedInOAuthDevCallback(app, config);
+  // Mount Slack before express.json() so /slack/* routes keep the raw body for
+  // signing-secret verification (url_verification uses application/json).
   app.use('/slack', createSlackWebhookRouter(supabaseClient, config));
+  app.use(express.json());
 
   app.get('/health', (_req, res) => {
     start('GET /health');
