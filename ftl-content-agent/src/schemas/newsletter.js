@@ -5,9 +5,14 @@ export const NEWSLETTER_SEGMENTS = /** @type {const} */ ([
   'tech_ai_legal',
 ]);
 
+/** Masthead series title — "The Briefing — {theme}" */
+export const BRIEFING_TITLE_RE = /^The Briefing — .+/;
+
+export const BRIEFING_AUTHOR_TITLE = 'Managing Director & CEO';
+
 export const NewsletterAuthorSchema = z.object({
   name: z.string().min(1),
-  title: z.literal('Founder & Managing Attorney'),
+  title: z.literal(BRIEFING_AUTHOR_TITLE),
 });
 
 export const NewsletterStatSchema = z.object({
@@ -58,7 +63,6 @@ export const NewsletterActionItemsPanelSchema = NewsletterPanelBaseSchema.extend
 export const NewsletterSpotlightPanelSchema = NewsletterPanelBaseSchema.extend({
   kind: z.literal('spotlight'),
   body: z.string().min(1),
-  enzio_supplied: z.literal(true),
 });
 
 export const NewsletterPanelSchema = z.discriminatedUnion('kind', [
@@ -74,17 +78,36 @@ export const NewsletterFooterSchema = z.object({
   physical_address: z.string().min(10),
 });
 
-export const IssueJsonSchema = z.object({
-  title: z.string().min(1),
-  segment: z.enum(NEWSLETTER_SEGMENTS),
-  issue_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  slug: z.string().min(1),
-  author: NewsletterAuthorSchema,
-  intro: z.string().min(20),
-  toc: z.array(z.string().min(1)).min(1),
-  panels: z.array(NewsletterPanelSchema).min(1),
-  footer: NewsletterFooterSchema,
-});
+export const IssueJsonSchema = z
+  .object({
+    title: z.string().regex(BRIEFING_TITLE_RE, 'title must match "The Briefing — {theme}"'),
+    segment: z.enum(NEWSLETTER_SEGMENTS),
+    issue_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    slug: z.string().min(1),
+    author: NewsletterAuthorSchema,
+    intro: z.string().min(20),
+    toc: z.array(z.string().min(1)).min(1),
+    panels: z.array(NewsletterPanelSchema).min(1),
+    footer: NewsletterFooterSchema,
+  })
+  .superRefine((issue, ctx) => {
+    const features = issue.panels.filter((p) => p.kind === 'feature');
+    if (features.length !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'exactly one feature panel required',
+        path: ['panels'],
+      });
+    }
+    const spotlights = issue.panels.filter((p) => p.kind === 'spotlight');
+    if (spotlights.length > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'at most one spotlight panel allowed',
+        path: ['panels'],
+      });
+    }
+  });
 
 /**
  * @param {unknown} raw
