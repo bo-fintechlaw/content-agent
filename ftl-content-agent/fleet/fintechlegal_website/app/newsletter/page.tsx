@@ -6,7 +6,7 @@ const SITE = 'https://fintechlaw.ai';
 
 export const metadata: Metadata = {
   title: 'Newsletter Archive | FinTech Law',
-  description: 'Past issues of The Financial Edge and The Startup Solution from FinTech Law.',
+  description: 'Past issues of The Briefing from FinTech Law.',
   alternates: { canonical: `${SITE}/newsletter` },
 };
 
@@ -40,9 +40,8 @@ export default async function NewsletterIndexPage() {
       <header className="mb-10">
         <p className="text-sm uppercase tracking-widest text-[#6f739d]">FinTech Law Newsletter</p>
         <h1 className="mt-2 font-serif text-4xl text-[#191919]">Archive</h1>
-        <p className="mt-3 text-lg text-[#6f739d]">
-          The Financial Edge and The Startup Solution — regulatory and governance guidance for fintech
-          teams.
+        <p className="mt-3 text-lg text-[#525866]">
+          The Briefing — regulatory and governance guidance for fintech teams.
         </p>
       </header>
 

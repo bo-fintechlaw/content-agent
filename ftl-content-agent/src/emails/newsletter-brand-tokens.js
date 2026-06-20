@@ -1,4 +1,4 @@
-/** FinTech Law newsletter design tokens — aligned with fintechlaw.ai CSS variables. */
+/** FinTech Law newsletter design tokens — The Briefing (2026 brand refresh). */
 export const FTL_BRAND = {
   maxWidth: 600,
   logoUrl: 'https://fintechlaw.ai/apple-touch-icon.png',
@@ -7,19 +7,26 @@ export const FTL_BRAND = {
   contactUrl: 'https://fintechlaw.ai/contact',
   colors: {
     black: '#191919',
-    purple: '#4d539c',
-    purpleDark: '#3f447c',
-    pink: '#d71566',
+    magenta: '#d71566',
+    coolInk: '#525866',
     white: '#ffffff',
-    muted: '#6f739d',
-    surfaceAlt: '#ebecf2',
-    border: '#cfd0de',
+    muted: '#525866',
+    surfaceAlt: '#f4f4f6',
+    border: '#d8dae3',
+    /** @deprecated use black */
+    purple: '#191919',
+    /** @deprecated use black */
+    purpleDark: '#0d0d0d',
+    /** @deprecated use magenta */
+    pink: '#d71566',
   },
   fonts: {
-    heading: "'DM Serif Display', Georgia, 'Times New Roman', serif",
-    body: "'Times New Roman', Georgia, serif",
-    ui: 'Arial, Helvetica, sans-serif',
+    heading: "'Playfair Display', Georgia, 'Times New Roman', serif",
+    body: "'Hanken Grotesk', Arial, Helvetica, sans-serif",
+    ui: "'Hanken Grotesk', Arial, Helvetica, sans-serif",
   },
+  googleFontsHref:
+    'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=Playfair+Display:wght@400;700&display=swap',
 };
 
 /** @deprecated Use FTL_BRAND */

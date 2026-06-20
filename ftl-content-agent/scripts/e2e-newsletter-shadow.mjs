@@ -7,11 +7,11 @@ import { lintNewsletterIssue } from '../src/utils/newsletter-compliance-linter.j
 import { parseIssueJson } from '../src/schemas/newsletter.js';
 
 const FIXTURE = {
-  title: 'The Financial Edge',
+  title: 'The Briefing — SEC Enforcement',
   segment: 'financial_services',
   issue_date: '2026-06-25',
-  slug: 'financial-edge-2026-06',
-  author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
+  slug: 'briefing-sec-enforcement-2026-06',
+  author: { name: 'Bo Howell', title: 'Managing Director & CEO' },
   intro: 'Named SEC enforcement patterns and concrete action items for fund managers.',
   toc: ['SEC enforcement roundup', 'Compliance deadlines', 'Action items'],
   panels: [
