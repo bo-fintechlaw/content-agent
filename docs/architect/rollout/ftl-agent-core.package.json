@@ -1,0 +1,38 @@
+{
+  "name": "@ftl/agent-core",
+  "version": "0.2.2",
+  "private": true,
+  "description": "Architect pin manifest for content-agent (vendored copy lives at vendor/ftl-agent-core/package.json)",
+  "ftl": {
+    "verifyAgentCorePins": "0.2.2",
+    "agents": {
+      "content": {
+        "agent_id": "content",
+        "task_kinds": {
+          "render_newsletter_issue": {
+            "route": "/api/tasks/render-newsletter-issue",
+            "method": "POST"
+          },
+          "publish_newsletter_issue": {
+            "route": "/api/tasks/publish-newsletter-issue",
+            "method": "POST"
+          }
+        },
+        "action_kinds": {
+          "newsletter_issue_draft": {
+            "autonomy_ceiling": "NEVER_AUTO",
+            "approval_channel": "#cmo-bo"
+          }
+        },
+        "slack_action_ids": [
+          "approve_newsletter_issue",
+          "discard_newsletter_issue",
+          "edit_newsletter_issue"
+        ],
+        "fleet_migrations": [
+          "0005_newsletter_action_kinds.sql"
+        ]
+      }
+    }
+  }
+}
