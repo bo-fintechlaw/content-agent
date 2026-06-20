@@ -4,6 +4,9 @@
   "private": true,
   "description": "FinTech Law LLC autonomous content agent — orchestration service",
   "type": "module",
+  "ftl": {
+    "agentId": "content"
+  },
   "main": "src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
