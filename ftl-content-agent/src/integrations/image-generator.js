@@ -35,7 +35,7 @@ export async function generateAndUploadImage({ prompt, sanityClient, xaiApiKey, 
           'https://api.x.ai/v1/images/generations',
           {
             model: 'grok-imagine-image',
-            prompt: `Professional editorial illustration for a legal/fintech blog post. ${prompt}. Style: clean, modern, minimal. No text or words in the image.`,
+            prompt: `Cinematic editorial illustration for a FinTech Law blog post. ${prompt}. FinTech Law palette: magenta #D41367, deep black, white, warm gold — never indigo or purple. High contrast; no text or words in the image; no stock-photo handshakes or corporate flatness.`,
             n: 1,
             aspect_ratio: '16:9',
             resolution: '2k',
