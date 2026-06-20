@@ -1,4 +1,8 @@
-import { IssueJsonSchema } from '../schemas/newsletter.js';
+import {
+  BRIEFING_AUTHOR_TITLE,
+  BRIEFING_TITLE_RE,
+  IssueJsonSchema,
+} from '../schemas/newsletter.js';
 
 const SUPERLATIVE_RE =
   /\b(best|#1|number one|top[- ]rated|leading|premier|guarantee(?:d)?|we will win|assured results?)\b/i;
@@ -8,9 +12,14 @@ const ENZIO_LEGAL_ADVICE_RE =
   /\b(we provide legal advice|our law firm|attorney-client relationship)\b/i;
 const DISALLOWED_JURISDICTION_RE =
   /\b(practicing law in|licensed in|admitted in)\s+(?!dc|district of columbia|nevada|ohio)\w+/i;
+const CONTRACTION_RE =
+  /\b(isn't|aren't|wasn't|weren't|doesn't|don't|didn't|won't|wouldn't|couldn't|shouldn't|can't|it's|that's|there's|here's|what's|who's|we're|they're|you're|i'm|i've|we've|they've|you've|i'll|we'll|they'll|you'll)\b/i;
+
+/** Canonical panel order for The Briefing (feature required; spotlight optional last). */
+const PANEL_KIND_ORDER = ['feature', 'compliance_corner', 'action_items', 'spotlight'];
 
 /**
- * Deterministic compliance linter — blocks before Slack card (v2 §13).
+ * Deterministic compliance linter — blocks before Slack card (Briefing v1).
  * @param {unknown} issueJson
  * @returns {{ pass: boolean, violations: string[] }}
  */
@@ -27,8 +36,12 @@ export function lintNewsletterIssue(issueJson) {
     };
   }
 
-  if (issue.author.title !== 'Founder & Managing Attorney') {
-    violations.push('author.title must be "Founder & Managing Attorney"');
+  if (!BRIEFING_TITLE_RE.test(issue.title)) {
+    violations.push('title must match "The Briefing — {theme}"');
+  }
+
+  if (issue.author.title !== BRIEFING_AUTHOR_TITLE) {
+    violations.push(`author.title must be "${BRIEFING_AUTHOR_TITLE}"`);
   }
 
   const textBlob = collectSearchableText(issue);
@@ -38,6 +51,9 @@ export function lintNewsletterIssue(issueJson) {
   }
   if (OUTCOME_GUARANTEE_RE.test(textBlob)) {
     violations.push('ABA 7.1: outcome guarantee language detected');
+  }
+  if (CONTRACTION_RE.test(textBlob)) {
+    violations.push('voice: contractions are not permitted in Briefing copy');
   }
   if (DISALLOWED_JURISDICTION_RE.test(textBlob)) {
     violations.push('jurisdiction: practice limited to DC / NV / OH');
@@ -54,8 +70,8 @@ export function lintNewsletterIssue(issueJson) {
   }
 
   const features = issue.panels.filter((p) => p.kind === 'feature');
-  if (!features.length) {
-    violations.push('content: at least one feature panel required');
+  if (features.length !== 1) {
+    violations.push('content: exactly one feature panel required');
   }
   for (const panel of features) {
     if (!panel.blog_url) {
@@ -63,18 +79,42 @@ export function lintNewsletterIssue(issueJson) {
     }
   }
 
-  for (const panel of issue.panels) {
-    if (panel.kind === 'spotlight') {
-      if (!panel.enzio_supplied) {
-        violations.push(`spotlight ${panel.section_no}: must be flagged enzio_supplied`);
-      }
-      if (ENZIO_LEGAL_ADVICE_RE.test(panel.body)) {
-        violations.push(`spotlight ${panel.section_no}: Enzio must not be framed as a law firm`);
-      }
+  const spotlights = issue.panels.filter((p) => p.kind === 'spotlight');
+  if (spotlights.length > 1) {
+    violations.push('content: at most one spotlight panel allowed');
+  }
+
+  const orderViolation = validatePanelOrder(issue.panels);
+  if (orderViolation) {
+    violations.push(orderViolation);
+  }
+
+  for (const panel of spotlights) {
+    if (ENZIO_LEGAL_ADVICE_RE.test(panel.body)) {
+      violations.push(`spotlight ${panel.section_no}: partner copy must not be framed as a law firm`);
     }
   }
 
   return { pass: violations.length === 0, violations };
+}
+
+/**
+ * Panels must follow feature → compliance_corner → action_items → spotlight.
+ * @param {import('../schemas/newsletter.js').IssueJsonSchema['_output']['panels']} panels
+ */
+function validatePanelOrder(panels) {
+  let lastIdx = -1;
+  for (const panel of panels) {
+    const idx = PANEL_KIND_ORDER.indexOf(panel.kind);
+    if (idx < lastIdx) {
+      return `panel order: ${panel.kind} must not appear before earlier sections (expected ${PANEL_KIND_ORDER.join(' → ')})`;
+    }
+    lastIdx = idx;
+  }
+  if (panels.length && panels[0].kind !== 'feature') {
+    return 'panel order: first panel must be feature';
+  }
+  return null;
 }
 
 /** @param {import('../schemas/newsletter.js').IssueJsonSchema['_output']} issue */

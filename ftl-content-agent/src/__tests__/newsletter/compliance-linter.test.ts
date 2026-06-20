@@ -1,12 +1,12 @@
 import { lintNewsletterIssue } from '../../utils/newsletter-compliance-linter.js';
-import { parseIssueJson } from '../../schemas/newsletter.js';
+import { BRIEFING_AUTHOR_TITLE, parseIssueJson } from '../../schemas/newsletter.js';
 
 const VALID_ISSUE = {
-  title: 'The Financial Edge',
+  title: 'The Briefing — SEC Enforcement',
   segment: 'financial_services',
   issue_date: '2026-06-25',
-  slug: 'financial-edge-2026-06',
-  author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
+  slug: 'briefing-sec-enforcement-2026-06',
+  author: { name: 'Bo Howell', title: BRIEFING_AUTHOR_TITLE },
   intro:
     'This edition tracks named SEC enforcement patterns and what fund managers should do now.',
   toc: ['SEC enforcement roundup', 'Compliance deadlines'],
@@ -41,16 +41,25 @@ const VALID_ISSUE = {
 };
 
 describe('IssueJsonSchema', () => {
-  it('parses a valid issue', () => {
+  it('parses a valid Briefing issue', () => {
     const issue = parseIssueJson(VALID_ISSUE);
-    expect(issue.slug).toBe('financial-edge-2026-06');
+    expect(issue.slug).toBe('briefing-sec-enforcement-2026-06');
   });
 
-  it('rejects wrong author title (masthead bug)', () => {
+  it('rejects legacy author title', () => {
     expect(() =>
       parseIssueJson({
         ...VALID_ISSUE,
-        author: { name: 'Bo Howell', title: 'Managing Director' },
+        author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects legacy series title', () => {
+    expect(() =>
+      parseIssueJson({
+        ...VALID_ISSUE,
+        title: 'The Financial Edge',
       })
     ).toThrow();
   });
@@ -75,29 +84,50 @@ describe('lintNewsletterIssue', () => {
   it('blocks schema-invalid author title', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
-      author: { name: 'Bo Howell', title: 'Managing Director' },
+      author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
     });
     expect(result.pass).toBe(false);
     expect(result.violations[0]).toMatch(/schema/i);
   });
 
-  it('blocks Enzio bleed without enzio_supplied flag', () => {
+  it('blocks spotlight framed as a law firm', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
       panels: [
         ...VALID_ISSUE.panels,
         {
           kind: 'spotlight',
-          section_no: 4,
+          section_no: 3,
           kicker: 'SPOTLIGHT',
           headline: 'Partner update',
-          dek: 'Enzio platform',
-          body: 'Partner-supplied copy only.',
-          enzio_supplied: false,
+          dek: 'Platform partner news',
+          body: 'We provide legal advice through our law firm partnership.',
         },
       ],
     });
     expect(result.pass).toBe(false);
+    expect(result.violations.some((v) => v.includes('spotlight'))).toBe(true);
+  });
+
+  it('blocks contractions in Briefing voice', () => {
+    const result = lintNewsletterIssue({
+      ...VALID_ISSUE,
+      intro: "This edition tracks what fund managers shouldn't ignore.",
+    });
+    expect(result.pass).toBe(false);
+    expect(result.violations.some((v) => v.includes('contractions'))).toBe(true);
+  });
+
+  it('blocks out-of-order panels', () => {
+    const result = lintNewsletterIssue({
+      ...VALID_ISSUE,
+      panels: [
+        VALID_ISSUE.panels[1],
+        VALID_ISSUE.panels[0],
+      ],
+    });
+    expect(result.pass).toBe(false);
+    expect(result.violations.some((v) => v.includes('panel order'))).toBe(true);
   });
 
   it('blocks missing footer disclaimer language', () => {
