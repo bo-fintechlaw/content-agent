@@ -1,0 +1,44 @@
+name: Claude Senior Dev Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  senior-dev-review:
+    name: Senior Dev Review
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Anthropic SDK
+        run: npm install @anthropic-ai/sdk@^0.39.0
+
+      - name: Run senior dev review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_PR_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: node .github/senior-dev/run-review.mjs
+
+      - name: Record PR review learning (CTO prod)
+        if: always()
+        env:
+          CTO_AGENT_TASK_SECRET: ${{ secrets.CTO_AGENT_TASK_SECRET }}
+        run: node scripts/record-pr-review-learning.mjs .github/senior-dev/review-output.json
