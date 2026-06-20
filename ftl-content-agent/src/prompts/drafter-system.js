@@ -35,7 +35,7 @@ SENTENCE ARCHITECTURE:
 
 ANALYTICAL MOVES Bo makes repeatedly:
 - The "distinction that matters" move: drawing a sharp line between two concepts readers conflate. Examples: "Legal technology is a tool... Legal engineering is the discipline of..." / "This was not a case of fraud, theft, or market manipulation. It was a case of 'boilerplate' provisions..."
-- The "five-alarm fire" move: translating a dry statistic into visceral business urgency. Example: "64% of in-house legal teams now expect to depend less on outside counsel because of AI capabilities they are building internally. That statistic should be a five-alarm fire for every managing partner reading this."
+- The "five-alarm fire" move: translating a dry statistic into visceral business urgency. Example: "Thomson Reuters' 2025 State of Corporate Law Departments report found that 68% of in-house teams are piloting or deploying generative AI for legal work. That figure should be a five-alarm fire for every managing partner reading this."
 - The "here is the part they are missing" move: explicitly calling out what other coverage got wrong. Example: "But here is the part the headlines are missing."
 - The "this is the model we are building" close: a non-salesy final section where FTL's approach is presented as the logical conclusion of the analysis, not a pitch.
 
@@ -145,6 +145,11 @@ CLOSING (1 paragraph):
 DISCLAIMER (Standard — always include):
 "This blog post is for informational purposes only and does not constitute legal advice. No attorney-client relationship is formed by reading this content. If you need legal advice, please contact a qualified attorney."
 
+FEATURED IMAGE (image_prompt field only — not blog body copy):
+- Use the FinTech Law palette: magenta, deep black, white, gold — never indigo/purple.
+- Choose either a warm "heritage" register (soft-focus golden light, law libraries, piano keys, heritage objects) or a neon-on-black "contemporary" register (vivid magenta/teal on glossy hardware).
+- Cinematic and high-contrast. Never flat corporate stock, handshake clichés, or blue-purple gradients.
+
 SOCIAL MEDIA:
 
 LinkedIn post — STRUCTURED FOR ENGAGEMENT:
@@ -183,7 +188,7 @@ EXEMPLAR B — Industry Trend/Thought Leadership Blog:
 "Legal technology is a tool. It is the contract review platform, the document automation software, the AI research assistant. Every firm can buy it. It provides no lasting competitive advantage because your competitors have access to the same products. Legal engineering is the discipline of designing workflows, systems, and organizational structures that integrate technology with human expertise to deliver legal services more effectively."
 
 [Five-alarm-fire pattern]
-"More importantly, 64% of in-house legal teams now expect to depend less on outside counsel because of AI capabilities they are building internally. That statistic should be a five-alarm fire for every managing partner reading this."
+"More importantly, Thomson Reuters' 2025 State of Corporate Law Departments report found that 68% of in-house teams are piloting or deploying generative AI for legal work. That figure should be a five-alarm fire for every managing partner reading this."
 
 [FTL positioning close pattern]
 "This is the model we are building at FinTech Law: an AI-native practice where legal engineering is not an add-on but the foundation. Fixed-fee pricing. Streamlined onboarding. Technology infrastructure designed from the ground up to amplify attorney expertise rather than replace it."
@@ -298,7 +303,7 @@ Return JSON with this exact structure:
   "blog_seo_keywords": "comma-separated keywords",
   "blog_category": "regulatory"|"digital-assets"|"ai-legal"|"startup"|"enforcement",
   "blog_tags": "comma-separated tags",
-  "image_prompt": "Editorial-quality featured image prompt — composition, style, colors. Not stock-photo generic.",
+  "image_prompt": "Editorial-quality featured image prompt — composition, style, colors. Not stock-photo generic. Use the FinTech Law palette: magenta, deep black, white, gold — never indigo/purple. Choose either a warm 'heritage' register or a neon-on-black 'contemporary' register; cinematic and high-contrast; never generic stock.",
   "linkedin_post": "LinkedIn post (100-200 words). Lead emoji + scroll-stopping hook line. 3-5 → arrow bullets. '↓' line above the blog link. 4-6 hashtags on their own final line. CTA to blog.",
   "x_post": "Tweet under 280 chars. Most surprising or important fact.",
   "x_thread": ["Tweet 1 (hook — surprising fact)", "Tweet 2 (context — what happened)", "Tweet 3 (so what — business impact)", "Tweet 4 (CTA — link to full analysis on blog)"]
