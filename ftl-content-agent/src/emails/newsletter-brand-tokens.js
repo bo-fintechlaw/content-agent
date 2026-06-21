@@ -1,24 +1,31 @@
-/** FinTech Law newsletter design tokens — The Briefing (2026 brand refresh). */
+import {
+  NEWSLETTER_BRAND_COLORS,
+  NEWSLETTER_FOOTER_DISCLAIMER,
+  NEWSLETTER_PHYSICAL_ADDRESS,
+  NEWSLETTER_SUBSCRIBE_URL,
+} from '../constants/newsletter-brand.js';
+
+/** FinTech Law newsletter design tokens — 2026 brand refresh. */
 export const FTL_BRAND = {
   maxWidth: 600,
   logoUrl: 'https://fintechlaw.ai/apple-touch-icon.png',
   siteUrl: 'https://fintechlaw.ai',
-  subscribeUrl: 'https://fintechlaw.ai/#newsletter',
+  subscribeUrl: NEWSLETTER_SUBSCRIBE_URL,
   contactUrl: 'https://fintechlaw.ai/contact',
   colors: {
-    black: '#191919',
-    magenta: '#d71566',
-    coolInk: '#525866',
-    white: '#ffffff',
-    muted: '#525866',
-    surfaceAlt: '#f4f4f6',
-    border: '#d8dae3',
+    black: NEWSLETTER_BRAND_COLORS.black,
+    magenta: NEWSLETTER_BRAND_COLORS.magenta,
+    coolInk: NEWSLETTER_BRAND_COLORS.coolInk,
+    white: NEWSLETTER_BRAND_COLORS.white,
+    muted: NEWSLETTER_BRAND_COLORS.coolInk,
+    surfaceAlt: NEWSLETTER_BRAND_COLORS.surfaceAlt,
+    border: NEWSLETTER_BRAND_COLORS.border,
     /** @deprecated use black */
-    purple: '#191919',
+    purple: NEWSLETTER_BRAND_COLORS.black,
     /** @deprecated use black */
-    purpleDark: '#0d0d0d',
+    purpleDark: '#050505',
     /** @deprecated use magenta */
-    pink: '#d71566',
+    pink: NEWSLETTER_BRAND_COLORS.magenta,
   },
   fonts: {
     heading: "'Playfair Display', Georgia, 'Times New Roman', serif",
@@ -28,6 +35,8 @@ export const FTL_BRAND = {
   googleFontsHref:
     'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=Playfair+Display:wght@400;700&display=swap',
 };
+
+export { NEWSLETTER_FOOTER_DISCLAIMER, NEWSLETTER_PHYSICAL_ADDRESS, NEWSLETTER_SUBSCRIBE_URL };
 
 /** @deprecated Use FTL_BRAND */
 export const FTL_NEWSLETTER_BRAND = FTL_BRAND.colors;

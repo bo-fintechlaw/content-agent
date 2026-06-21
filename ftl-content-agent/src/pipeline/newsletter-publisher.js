@@ -9,11 +9,22 @@ import { parseIssueJson } from '../schemas/newsletter.js';
 import { buildNewsletterSanityDocument } from './newsletter-renderer.js';
 import { enrichIssueWithHeroImages } from './newsletter-hero-enrichment.js';
 import { renderNewsletterCarousel } from '../integrations/newsletter-carousel.js';
-import { postLinkedInUgc } from '../integrations/linkedin.js';
-import { postXTweet } from '../integrations/x.js';
+import { generateNewsletterLinkedInPost } from './newsletter-social-generator.js';
+import { sendNewsletterSocialReviewCard } from '../integrations/cmo-newsletter-slack.js';
+import { createSlackClient } from '../integrations/slack.js';
 import { fail, start, success } from '../utils/logger.js';
 
 const PUBLIC_SITE = 'https://fintechlaw.ai';
+
+/**
+ * @param {Record<string, unknown>} config
+ * @param {string} segment
+ */
+function audienceForSegment(config, segment) {
+  if (segment === 'financial_services') return config.RESEND_AUDIENCE_FINANCIAL_SERVICES;
+  if (segment === 'tech_ai_legal') return config.RESEND_AUDIENCE_TECH_AI_LEGAL;
+  return config.RESEND_AUDIENCE_ID || null;
+}
 
 /**
  * Publish an approved newsletter issue.
@@ -84,7 +95,8 @@ export async function publishNewsletterIssue(supabase, config, input) {
   }
 
   let resendBroadcastId = null;
-  if (config.RESEND_API_KEY && config.RESEND_AUDIENCE_ID) {
+  const audienceId = audienceForSegment(config, issue.segment);
+  if (config.RESEND_API_KEY && audienceId) {
     const resend = createResendClient(config.RESEND_API_KEY);
     const html = buildNewsletterEmailHtml(issue, {
       archiveUrl,
@@ -95,8 +107,8 @@ export async function publishNewsletterIssue(supabase, config, input) {
       unsubscribeUrl: `${PUBLIC_SITE}/unsubscribe`,
     });
     const broadcast = await sendNewsletterBroadcast(resend, {
-      audienceId: config.RESEND_AUDIENCE_ID,
-      from: config.RESEND_FROM_EMAIL || 'FinTech Law <newsletter@fintechlaw.ai>',
+      audienceId,
+      from: config.RESEND_FROM || 'FinTech Law <newsletter@fintechlaw.ai>',
       subject: `${issue.title} — ${issue.issue_date}`,
       html,
       text,
@@ -104,37 +116,7 @@ export async function publishNewsletterIssue(supabase, config, input) {
     resendBroadcastId = broadcast?.id ?? null;
   }
 
-  const socialText = buildNewsletterSocialPost(issue, archiveUrl);
-  let linkedinPostId = null;
-  let xPostId = null;
-
-  if (config.LINKEDIN_ACCESS_TOKEN && config.LINKEDIN_PERSON_URN) {
-    try {
-      const { id } = await postLinkedInUgc({
-        accessToken: config.LINKEDIN_ACCESS_TOKEN,
-        personUrn: config.LINKEDIN_PERSON_URN,
-        text: socialText,
-      });
-      linkedinPostId = id;
-    } catch (liErr) {
-      fail('publishNewsletterIssue:linkedin', liErr);
-    }
-  }
-
-  if (config.ENABLE_X_POSTING && config.X_API_KEY) {
-    try {
-      const { id } = await postXTweet({
-        consumerKey: config.X_API_KEY,
-        consumerSecret: config.X_API_SECRET,
-        accessToken: config.X_ACCESS_TOKEN,
-        accessTokenSecret: config.X_ACCESS_TOKEN_SECRET,
-        text: socialText.slice(0, 280),
-      });
-      xPostId = id;
-    } catch (xErr) {
-      fail('publishNewsletterIssue:x', xErr);
-    }
-  }
+  const linkedinPost = await generateNewsletterLinkedInPost(config, { issue, archiveUrl });
 
   const { error: updErr } = await supabase
     .from('newsletter_issues')
@@ -146,6 +128,8 @@ export async function publishNewsletterIssue(supabase, config, input) {
       web_preview_url: archiveUrl,
       issue_json: issue,
       carousel_urls: carouselUrls,
+      linkedin_post: linkedinPost,
+      social_approved: false,
       updated_at: nowIso,
     })
     .eq('id', input.issueId);
@@ -164,21 +148,30 @@ export async function publishNewsletterIssue(supabase, config, input) {
     );
   }
 
+  const channelId = config.SLACK_CMO_BO_CHANNEL_ID || config.SLACK_CHANNEL_ID;
+  if (config.SLACK_BOT_TOKEN && channelId) {
+    try {
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendNewsletterSocialReviewCard(slack, channelId, {
+        issueId: input.issueId,
+        title: issue.title,
+        archiveUrl,
+        carouselUrls,
+        linkedinPost,
+      });
+    } catch (slackErr) {
+      fail('publishNewsletterIssue:socialCard', slackErr);
+    }
+  }
+
   const result = {
     issue_id: input.issueId,
     archive_url: archiveUrl,
     sanity_document_id: sanityPublishedId,
     resend_broadcast_id: resendBroadcastId,
-    linkedin_post_id: linkedinPostId,
-    x_post_id: xPostId,
+    carousel_urls: carouselUrls,
+    linkedin_post: linkedinPost,
   };
   success('publishNewsletterIssue', result);
   return result;
-}
-
-/** @param {import('../schemas/newsletter.js').IssueJsonSchema['_output']} issue */
-function buildNewsletterSocialPost(issue, archiveUrl) {
-  const firstFeature = issue.panels.find((p) => p.kind === 'feature');
-  const hook = firstFeature?.headline ?? issue.title;
-  return `${issue.title} is out.\n\n${hook}\n\nRead the full issue → ${archiveUrl}`;
 }

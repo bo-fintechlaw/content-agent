@@ -69,9 +69,9 @@ export function NewsletterIssueView({ issue }: { issue: NewsletterIssue }) {
   const dateStr = formatDate(issue.issue_date);
 
   return (
-    <article className="mx-auto max-w-3xl bg-white font-['Hanken_Grotesk',Arial,sans-serif] text-[#191919]">
+    <article className="mx-auto max-w-3xl bg-white font-['Hanken_Grotesk',Arial,sans-serif] text-[#0A0A0A]">
       <link rel="stylesheet" href={FONTS} />
-      <header className="flex items-center gap-4 border-b-[3px] border-[#d71566] bg-[#191919] px-6 py-6 text-white">
+      <header className="flex items-center gap-4 border-b-[3px] border-[#D41367] bg-[#0A0A0A] px-6 py-6 text-white">
         <img src={LOGO} alt="FinTech Law" width={48} height={48} className="rounded-lg" />
         <div>
           <p className="m-0 font-['Hanken_Grotesk',Arial,sans-serif] text-xs uppercase tracking-widest opacity-90">
@@ -82,7 +82,7 @@ export function NewsletterIssueView({ issue }: { issue: NewsletterIssue }) {
       </header>
 
       <section className="px-6 py-8">
-        <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-xs font-semibold uppercase tracking-wider text-[#d71566]">
+        <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-xs font-semibold uppercase tracking-wider text-[#D41367]">
           From {issue.author.name}
         </p>
         <p className="m-0 text-lg leading-relaxed">{issue.intro}</p>
@@ -108,7 +108,7 @@ export function NewsletterIssueView({ issue }: { issue: NewsletterIssue }) {
       <footer className="border-t border-[#d8dae3] bg-[#f4f4f6] px-6 py-6 text-sm text-[#525866]">
         <p>{issue.footer.disclaimer}</p>
         <p>{issue.footer.physical_address}</p>
-        <p className="mt-4 text-[#191919]">
+        <p className="mt-4 text-[#0A0A0A]">
           — {issue.author.name}, {issue.author.title}
         </p>
       </footer>
@@ -152,7 +152,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
                   key={`${s.value}-${s.label}`}
                   className="min-w-[120px] flex-1 border border-[#d8dae3] bg-[#f4f4f6] px-4 py-3 text-center"
                 >
-                  <p className="m-0 font-['Playfair_Display',Georgia,serif] text-2xl text-[#191919]">
+                  <p className="m-0 font-['Playfair_Display',Georgia,serif] text-2xl text-[#0A0A0A]">
                     {s.value}
                   </p>
                   <p className="mt-1 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.65rem] uppercase tracking-wide text-[#525866]">
@@ -164,7 +164,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
           ) : null}
           {panel.action_list?.length ? (
             <>
-              <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.7rem] font-semibold uppercase tracking-wide text-[#d71566]">
+              <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.7rem] font-semibold uppercase tracking-wide text-[#D41367]">
                 Key takeaways
               </p>
               <ul className="mb-4 list-disc pl-5">
@@ -175,7 +175,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
             </>
           ) : null}
           {panel.pull_quote ? (
-            <div className="mb-4 border-l-4 border-[#d71566] bg-[#f4f4f6] px-4 py-3 italic">
+            <div className="mb-4 border-l-4 border-[#D41367] bg-[#f4f4f6] px-4 py-3 italic">
               <p className="mb-1 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.65rem] font-semibold uppercase not-italic tracking-wide text-[#525866]">
                 Why it matters
               </p>
@@ -184,7 +184,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
           ) : null}
           <a
             href={panel.blog_url}
-            className="inline-block rounded bg-[#191919] px-4 py-2.5 font-['Hanken_Grotesk',Arial,sans-serif] text-sm font-semibold text-white no-underline"
+            className="inline-block rounded bg-[#0A0A0A] px-4 py-2.5 font-['Hanken_Grotesk',Arial,sans-serif] text-sm font-semibold text-white no-underline"
           >
             Read the full analysis →
           </a>
@@ -195,14 +195,14 @@ function PanelBlock({ panel }: { panel: Panel }) {
         <>
           {panel.deadlines?.length ? (
             <>
-              <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.7rem] font-semibold uppercase tracking-wide text-[#d71566]">
+              <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.7rem] font-semibold uppercase tracking-wide text-[#D41367]">
                 Deadlines
               </p>
               <table className="mb-4 w-full border-collapse">
                 <tbody>
                   {panel.deadlines.map((d) => (
                     <tr key={`${d.date}-${d.requirement}`}>
-                      <td className="whitespace-nowrap py-2 pr-4 align-top font-semibold text-[#d71566]">
+                      <td className="whitespace-nowrap py-2 pr-4 align-top font-semibold text-[#D41367]">
                         {d.date}
                       </td>
                       <td className="py-2 align-top">{d.requirement}</td>
@@ -214,7 +214,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
           ) : null}
           {panel.litigation_watch?.length ? (
             <>
-              <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.7rem] font-semibold uppercase tracking-wide text-[#d71566]">
+              <p className="mb-2 font-['Hanken_Grotesk',Arial,sans-serif] text-[0.7rem] font-semibold uppercase tracking-wide text-[#D41367]">
                 Litigation watch
               </p>
               <ul className="list-disc pl-5">
@@ -231,7 +231,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
         <>
           {panel.groups.map((g) => (
             <div key={g.firm_type} className="mt-4">
-              <p className="mb-2 font-semibold text-[#191919]">
+              <p className="mb-2 font-semibold text-[#0A0A0A]">
                 {g.label ? `${g.label} · ` : ''}
                 {g.firm_type}
               </p>
@@ -243,7 +243,7 @@ function PanelBlock({ panel }: { panel: Panel }) {
             </div>
           ))}
           <p className="mt-4">
-            <a href={panel.consultation_url} className="font-semibold text-[#d71566]">
+            <a href={panel.consultation_url} className="font-semibold text-[#D41367]">
               Schedule a consultation →
             </a>
           </p>
