@@ -19,8 +19,11 @@ import {
   sendDailyNoDraftNotification,
   sendFeedHealthReport,
   sendMondaySearchAndRankReport,
+  sendMidweekScanAndRankReport,
+  sendLowRankedQueueAlert,
 } from './integrations/slack.js';
 import { runFeedHealthCheck } from './utils/feed-health.js';
+import { countRankedTopics } from './pipeline/weekly-report.js';
 import { fail, start, success } from './utils/logger.js';
 import { withCronRun } from './utils/cron-runs.js';
 import {
@@ -106,9 +109,12 @@ async function main() {
       start('cron:weeklyScanAndRank');
       try {
         await withCronRun(supabaseClient, 'cron:weeklyScanAndRank', async () => {
-          const scan = await runSourceScan(supabaseClient);
+          const scan = await runSourceScan(supabaseClient, { config });
           success('cron:weeklyScanAndRank:scan', scan);
-          const rank = await runTopicRanking(supabaseClient, config);
+          const rank = await runTopicRanking(supabaseClient, config, {
+            batchLimit: 75,
+            backfillTarget: 5,
+          });
           success('cron:weeklyScanAndRank:rank', rank);
           try {
             const slack = createSlackClient(config.SLACK_BOT_TOKEN);
@@ -133,6 +139,52 @@ async function main() {
         });
       } catch (e) {
         fail('cron:weeklyScanAndRank', e);
+      }
+    },
+    { timezone: 'America/New_York' }
+  );
+
+  // ── Mid-week scan + rank — Wednesday 6 AM ET (72h window) ───────
+  cron.schedule(
+    '0 6 * * 3',
+    async () => {
+      start('cron:midweekScanAndRank');
+      try {
+        await withCronRun(supabaseClient, 'cron:midweekScanAndRank', async () => {
+          const scan = await runSourceScan(supabaseClient, {
+            config,
+            windowHours: 72,
+          });
+          const rank = await runTopicRanking(supabaseClient, config, {
+            batchLimit: 40,
+            backfillTarget: 3,
+          });
+          try {
+            const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+            await sendMidweekScanAndRankReport(slack, config.SLACK_CHANNEL_ID, {
+              scan,
+              rank,
+            });
+          } catch (slackErr) {
+            fail('cron:midweekScanAndRank:slack', slackErr);
+          }
+          const ftlRanked = await countRankedTopics(supabaseClient, 'fintechlaw');
+          if (ftlRanked < 3) {
+            try {
+              const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+              await sendLowRankedQueueAlert(slack, config.SLACK_CHANNEL_ID, {
+                brandId: 'fintechlaw',
+                count: ftlRanked,
+                threshold: 3,
+              });
+            } catch (alertErr) {
+              fail('cron:midweekScanAndRank:lowQueue', alertErr);
+            }
+          }
+          return { scan, rank, ftlRanked };
+        });
+      } catch (e) {
+        fail('cron:midweekScanAndRank', e);
       }
     },
     { timezone: 'America/New_York' }

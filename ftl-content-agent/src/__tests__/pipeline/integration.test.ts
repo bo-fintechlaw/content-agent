@@ -51,12 +51,27 @@ function buildSupabaseMock() {
       const store = table === 'content_topics' ? dbTopics
         : table === 'content_drafts' ? dbDrafts
         : table === 'content_analytics' ? dbAnalytics
+        : table === 'published_posts_index' ? []
         : [];
 
       return {
-        select: jest.fn<any>((_cols?: string) => {
+        select: jest.fn<any>((_cols?: string, opts?: { count?: string; head?: boolean }) => {
           const filterChain: Record<string, any> = {};
           let filtered = [...store];
+
+          if (opts?.count === 'exact' && opts?.head) {
+            filterChain.eq = jest.fn<any>((col: string, val: any) => {
+              filtered = filtered.filter((r) => r[col] === val);
+              return filterChain;
+            });
+            filterChain.in = jest.fn<any>((col: string, vals: any[]) => {
+              filtered = filtered.filter((r) => vals.includes(r[col]));
+              return filterChain;
+            });
+            filterChain.then = (resolve: any) =>
+              resolve({ count: filtered.length, error: null });
+            return filterChain;
+          }
 
           filterChain.eq = jest.fn<any>((col: string, val: any) => {
             filtered = filtered.filter((r) => r[col] === val);
@@ -357,6 +372,7 @@ describe('Pipeline Integration — Happy Path', () => {
       relevance_score: null,
       status: 'pending',
       suggested_by: 'scanner',
+      brand_id: 'fintechlaw',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -469,6 +485,7 @@ describe('Pipeline Integration — Revision Loop', () => {
       summary: 'Testing the revision loop.',
       category: 'regulatory',
       status: 'judging',
+      brand_id: 'fintechlaw',
       created_at: new Date().toISOString(),
     });
 
@@ -549,6 +566,7 @@ describe('Pipeline Integration — Revision Loop', () => {
       summary: 'Already revised once.',
       category: 'regulatory',
       status: 'judging',
+      brand_id: 'fintechlaw',
       created_at: new Date().toISOString(),
     });
 
@@ -608,6 +626,7 @@ describe('Pipeline Integration — Manual Topic Bypass', () => {
       category: 'ai_legal_tech',
       status: 'pending',
       suggested_by: 'manual',
+      brand_id: 'fintechlaw',
       created_at: new Date().toISOString(),
     });
 
@@ -646,6 +665,7 @@ describe('Pipeline Integration — topicId / draftId overrides', () => {
         category: 'regulatory',
         relevance_score: 3,
         status: 'ranked',
+        brand_id: 'fintechlaw',
         created_at: now,
         updated_at: now,
       },
@@ -656,6 +676,7 @@ describe('Pipeline Integration — topicId / draftId overrides', () => {
         category: 'regulatory',
         relevance_score: 99,
         status: 'ranked',
+        brand_id: 'fintechlaw',
         created_at: now,
         updated_at: now,
       }
@@ -676,8 +697,8 @@ describe('Pipeline Integration — topicId / draftId overrides', () => {
     const newerDraft = uuid();
     const now = new Date().toISOString();
     dbTopics.push(
-      { id: topicA, title: 'A', summary: 's', category: 'regulatory', status: 'judging', created_at: now },
-      { id: topicB, title: 'B', summary: 's', category: 'regulatory', status: 'judging', created_at: now }
+      { id: topicA, title: 'A', summary: 's', category: 'regulatory', status: 'judging', brand_id: 'fintechlaw', created_at: now },
+      { id: topicB, title: 'B', summary: 's', category: 'regulatory', status: 'judging', brand_id: 'fintechlaw', created_at: now }
     );
     dbDrafts.push(
       {
@@ -718,6 +739,7 @@ describe('Pipeline Integration — topicId / draftId overrides', () => {
       category: 'regulatory',
       relevance_score: 6.0,
       status: 'ranked',
+      brand_id: 'fintechlaw',
       created_at: now,
       updated_at: now,
     });
@@ -738,6 +760,7 @@ describe('Pipeline Integration — topicId / draftId overrides', () => {
       category: 'regulatory',
       relevance_score: 8.0,
       status: 'ranked',
+      brand_id: 'fintechlaw',
       created_at: now,
       updated_at: now,
     });

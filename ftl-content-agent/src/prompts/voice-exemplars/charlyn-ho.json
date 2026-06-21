@@ -1,0 +1,22 @@
+[
+  {
+    "source": "Law.com — data anonymization",
+    "text": "For data privacy attorneys, data anonymization is often too good to be true. If you can re-identify the dataset with reasonable effort, regulators treat it as personal information — full stop. The practical test is not what your vendor's marketing deck says; it is whether residual risk remains after you strip direct identifiers."
+  },
+  {
+    "source": "CoinTelegraph Magazine — privacy vs AML",
+    "text": "When privacy and AML laws conflict, the compliance answer is not 'pick one.' You map the data flow, document the legal basis for each processing step, and show regulators you can meet travel-rule obligations without retaining data you cannot lawfully hold. That requires engineering and legal design together — not a boilerplate privacy policy."
+  },
+  {
+    "source": "Forbes contributor — state privacy patchwork",
+    "text": "Multistate privacy compliance fails when teams treat CPRA, Colorado, and Connecticut as copy-paste exercises. Each statute differs on sensitive-data definitions, opt-out mechanics, and vendor contract terms. Build a control matrix first; then draft notices and DPAs against that matrix — not the other way around."
+  },
+  {
+    "source": "Rikka team bio",
+    "text": "Rikka Law helps companies operationalize privacy and AI governance — from breach response playbooks to vendor diligence and board-ready AI policies. The firm works where product, legal, and security teams actually meet: data maps, retention schedules, and audit trails regulators expect to see on day one of an inquiry."
+  },
+  {
+    "source": "Practitioner clip — EU AI Act readiness",
+    "text": "EU AI Act readiness is not a checklist exercise for US companies with EU users. If your model makes consequential decisions about individuals in the EU, you need documented risk classification, human oversight, and logging that survives a supervisory authority request. Start with inventory — you cannot govern what you have not mapped."
+  }
+]

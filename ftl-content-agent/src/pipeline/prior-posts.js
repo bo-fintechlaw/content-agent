@@ -13,6 +13,9 @@
  */
 
 import { fail, start, success } from '../utils/logger.js';
+import { maxTitleSimilarity } from './diversity.js';
+
+const OVERLAP_THRESHOLD = 0.55;
 
 // Public blog domain — fixed to fintechlaw.ai (Sanity → Netlify build target).
 // We deliberately do NOT default to APP_BASE_URL because that points at the
@@ -51,6 +54,7 @@ export async function recordPublishedPost(supabase, args) {
       blog_slug: String(draft.blog_slug ?? '').slice(0, 200),
       category: topic.category ?? null,
       source_name: topic.source_name ?? null,
+      brand_id: draft.brand_id ?? topic.brand_id ?? 'fintechlaw',
       first_paragraph: firstParagraph,
       published_at: publishedAt ?? new Date().toISOString(),
     };
@@ -89,7 +93,7 @@ export async function recordPublishedPost(supabase, args) {
  * }>>}
  */
 export async function findRelatedPriorPosts(supabase, args) {
-  const { topic, limit = 3, excludeDraftId = null } = args ?? {};
+  const { topic, limit = 3, excludeDraftId = null, brandId = null } = args ?? {};
   const queryText = buildFtsQuery(topic);
   if (!queryText) return [];
 
@@ -97,17 +101,52 @@ export async function findRelatedPriorPosts(supabase, args) {
     let q = supabase
       .from('published_posts_index')
       .select(
-        'draft_id, blog_title, blog_slug, published_url, first_paragraph, category, published_at'
+        'draft_id, blog_title, blog_slug, published_url, first_paragraph, category, published_at, brand_id'
       )
       .textSearch('search_tsv', queryText, { type: 'websearch', config: 'english' })
       .order('published_at', { ascending: false })
       .limit(Math.max(1, Math.min(10, limit)));
+    const resolvedBrand = brandId ?? topic?.brand_id ?? null;
+    if (resolvedBrand) q = q.eq('brand_id', resolvedBrand);
     if (excludeDraftId) q = q.neq('draft_id', excludeDraftId);
     const { data, error } = await q;
     if (error) return [];
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Pre-rank skip: archive pending topics whose title overlaps a recent publish
+ * in the same brand corpus.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ topic: { title?: string|null, brand_id?: string|null }, brandId?: string }} args
+ */
+export async function shouldSkipPendingTopicForOverlap(supabase, args) {
+  const { topic, brandId = topic?.brand_id ?? 'fintechlaw' } = args ?? {};
+  const title = String(topic?.title ?? '').trim();
+  if (!title) return false;
+
+  try {
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
+    const { data, error } = await supabase
+      .from('published_posts_index')
+      .select('blog_title')
+      .eq('brand_id', brandId)
+      .gte('published_at', since)
+      .order('published_at', { ascending: false })
+      .limit(40);
+    if (error || !data?.length) return false;
+
+    const sim = maxTitleSimilarity(
+      title,
+      data.map((r) => r.blog_title).filter(Boolean)
+    );
+    return sim >= OVERLAP_THRESHOLD;
+  } catch {
+    return false;
   }
 }
 

@@ -175,7 +175,7 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
     start('GET /api/scan-now');
 
     try {
-      const stats = await runSourceScan(supabaseClient);
+      const stats = await runSourceScan(supabaseClient, { config });
       success('GET /api/scan-now', stats);
       res.json({ ok: true, ...stats });
     } catch (error) {

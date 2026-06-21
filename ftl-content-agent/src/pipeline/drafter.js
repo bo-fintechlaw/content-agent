@@ -1,5 +1,6 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
 import { getKeywordsForCategory } from '../config/seo-keywords.js';
+import { getBrand, getEnabledBrands, resolveBlogCategory } from '../config/brands/index.js';
 import { DRAFTER_SYSTEM_PROMPT, buildDrafterUserPrompt } from '../prompts/drafter-system.js';
 import { LENS_LIST } from '../schemas/pipeline.js';
 import { applyDiversityPenalty, fetchRecentlyPublished } from './diversity.js';
@@ -34,7 +35,7 @@ export async function runDrafting(supabase, config, options = {}) {
     if (forceTopicId) {
       const { data: forced, error: forcedErr } = await supabase
         .from('content_topics')
-        .select('id,title,summary,source_url,category,relevance_score,status')
+        .select('id,title,summary,source_url,category,relevance_score,status,brand_id')
         .eq('id', forceTopicId)
         .maybeSingle();
       if (forcedErr) throw new Error(forcedErr.message);
@@ -76,7 +77,7 @@ export async function runDrafting(supabase, config, options = {}) {
       // Check for topics needing revision first (human feedback), then new ranked topics
       const { data: revisionTopic, error: revErr } = await supabase
         .from('content_topics')
-        .select('id,title,summary,source_url,category,relevance_score,status')
+        .select('id,title,summary,source_url,category,relevance_score,status,brand_id')
         .eq('status', 'revision')
         .order('updated_at', { ascending: true })
         .limit(1)
@@ -91,23 +92,46 @@ export async function runDrafting(supabase, config, options = {}) {
       if (!revisionTopic) {
         const { data: candidates, error: rankErr } = await supabase
           .from('content_topics')
-          .select(
-            'id,title,summary,source_url,source_name,category,relevance_score,status'
-          )
+          .select('id,title,summary,source_url,source_name,category,relevance_score,status,brand_id')
           .eq('status', 'ranked')
+          .in(
+            'brand_id',
+            getEnabledBrands(config).map((b) => b.id)
+          )
           .order('relevance_score', { ascending: false })
           .limit(10);
         if (rankErr) throw new Error(rankErr.message);
         if (candidates?.length) {
-          const recent = await fetchRecentlyPublished(supabase);
-          const adjusted = applyDiversityPenalty(candidates, recent);
-          rankedTopic = adjusted[0]?.topic ?? null;
-          if (rankedTopic && adjusted[0].penalty > 0) {
+          const recentByBrand = new Map();
+          const adjusted = candidates.map((topic) => {
+            const brandId = topic.brand_id ?? 'fintechlaw';
+            if (!recentByBrand.has(brandId)) {
+              recentByBrand.set(brandId, null);
+            }
+            return topic;
+          });
+          for (const brandId of recentByBrand.keys()) {
+            recentByBrand.set(
+              brandId,
+              await fetchRecentlyPublished(supabase, { brandId })
+            );
+          }
+          const scored = adjusted.flatMap((topic) => {
+            const brandId = topic.brand_id ?? 'fintechlaw';
+            const recent = recentByBrand.get(brandId) ?? [];
+            return applyDiversityPenalty([topic], recent);
+          });
+          scored.sort(
+            (a, b) => b.adjustedScore - a.adjustedScore || b.rawScore - a.rawScore
+          );
+          rankedTopic = scored[0]?.topic ?? null;
+          if (rankedTopic && scored[0].penalty > 0) {
             success('runDrafting:diversity', {
               picked: rankedTopic.id,
-              rawScore: adjusted[0].rawScore,
-              adjustedScore: adjusted[0].adjustedScore,
-              reasons: adjusted[0].reasons,
+              rawScore: scored[0].rawScore,
+              adjustedScore: scored[0].adjustedScore,
+              reasons: scored[0].reasons,
+              brandId: rankedTopic.brand_id,
             });
           }
         }
@@ -164,9 +188,12 @@ export async function runDrafting(supabase, config, options = {}) {
 
     // Look up topically-related FTL posts so the drafter can cross-reference
     // its own corpus. Best-effort: empty list on any error, no blocking.
+    const brandId = topic.brand_id ?? 'fintechlaw';
+    const brand = getBrand(brandId);
     const relatedPriorPosts = await findRelatedPriorPosts(supabase, {
       topic,
       limit: 3,
+      brandId,
     });
     if (relatedPriorPosts.length) {
       success('runDrafting:priorPosts', {
@@ -196,8 +223,8 @@ export async function runDrafting(supabase, config, options = {}) {
     try {
       draft = await promptJson(client, {
         model: config.ANTHROPIC_MODEL,
-        system: DRAFTER_SYSTEM_PROMPT,
-        user: buildDrafterUserPrompt({
+        system: brand.prompts.drafterSystem ?? DRAFTER_SYSTEM_PROMPT,
+        user: (brand.prompts.buildDrafterUser ?? buildDrafterUserPrompt)({
           topic,
           seoKeywords: getKeywordsForCategory(topic.category),
           revisionInstructions,
@@ -241,10 +268,17 @@ export async function runDrafting(supabase, config, options = {}) {
       (w) => `prejudge_warning: editorial_meta: ${w}`
     );
 
+    draft.blog_category = resolveBlogCategory(
+      brandId,
+      topic.category,
+      draft.blog_category
+    );
+
     const { data: inserted, error: insErr } = await supabase
       .from('content_drafts')
       .insert({
         topic_id: topic.id,
+        brand_id: brandId,
         blog_title: draft.blog_title,
         blog_slug: draft.blog_slug,
         blog_body: draft.blog_body,
