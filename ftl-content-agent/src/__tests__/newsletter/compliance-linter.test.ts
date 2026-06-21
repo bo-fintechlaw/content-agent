@@ -1,15 +1,25 @@
 import { lintNewsletterIssue } from '../../utils/newsletter-compliance-linter.js';
-import { BRIEFING_AUTHOR_TITLE, parseIssueJson } from '../../schemas/newsletter.js';
+import {
+  NEWSLETTER_FOOTER_DISCLAIMER,
+  NEWSLETTER_PHYSICAL_ADDRESS,
+  NEWSLETTER_SUBSCRIBE_URL,
+} from '../../constants/newsletter-brand.js';
+import { NEWSLETTER_AUTHOR_TITLE, parseIssueJson } from '../../schemas/newsletter.js';
+
+const LONG_COPY = Array.from({ length: 8 }, () =>
+  'This edition tracks named SEC enforcement patterns, private fund disclosure expectations, and operational controls fund managers should implement before the next examination cycle. ' +
+    'We focus on concrete steps rather than abstract commentary because regulatory risk compounds when teams defer documentation updates. ' +
+    'The SEC continues to prioritize marketing rule compliance, AI governance in advisory workflows, and custody-adjacent arrangements that blur traditional service boundaries.'
+).join(' ');
 
 const VALID_ISSUE = {
-  title: 'The Briefing — SEC Enforcement',
+  title: 'The Financial Edge — SEC Enforcement',
   segment: 'financial_services',
   issue_date: '2026-06-25',
-  slug: 'briefing-sec-enforcement-2026-06',
-  author: { name: 'Bo Howell', title: BRIEFING_AUTHOR_TITLE },
-  intro:
-    'This edition tracks named SEC enforcement patterns and what fund managers should do now.',
-  toc: ['SEC enforcement roundup', 'Compliance deadlines'],
+  slug: 'financial-edge-sec-enforcement-2026-06',
+  author: { name: 'Bo Howell', title: NEWSLETTER_AUTHOR_TITLE },
+  intro: LONG_COPY,
+  toc: ['SEC enforcement roundup', 'Compliance deadlines', 'Action items'],
   panels: [
     {
       kind: 'feature',
@@ -19,12 +29,32 @@ const VALID_ISSUE = {
       dek: 'Recent orders show a pattern in marketing and performance claims.',
       stats: [{ value: '12', label: 'actions in Q2' }],
       pull_quote: 'The pattern is disclosure-first, not product-first.',
-      action_list: ['Audit marketing decks against filed disclosures'],
-      blog_url: 'https://fintechlaw.ai/blog/example-post',
+      action_list: ['Audit marketing decks against filed disclosures', 'Document AI oversight controls'],
+      blog_url: 'https://fintechlaw.ai/blog/example-post-a',
+    },
+    {
+      kind: 'feature',
+      section_no: 2,
+      kicker: 'ANALYSIS · 02 · MARKETING RULE',
+      headline: 'Marketing rule exams focus on substantiation',
+      dek: 'Examiners are asking for backup files tied to performance advertising.',
+      stats: [{ value: '8', label: 'recent letters' }],
+      pull_quote: 'Substantiation files must match what clients actually saw.',
+      action_list: ['Reconcile social posts with archived substantiation packets'],
+      blog_url: 'https://fintechlaw.ai/blog/example-post-b',
+    },
+    {
+      kind: 'compliance_corner',
+      section_no: 3,
+      kicker: 'COMPLIANCE CORNER',
+      headline: 'Deadlines on the horizon',
+      dek: 'Key dates for registered advisers and private fund advisers.',
+      deadlines: [{ date: 'Jul 15', requirement: 'Form ADV annual amendment window closes' }],
+      litigation_watch: ['Circuit split on digital asset custody continues to develop'],
     },
     {
       kind: 'action_items',
-      section_no: 2,
+      section_no: 4,
       kicker: 'ACTION ITEMS',
       headline: 'What to do now',
       dek: 'Concrete steps by firm type.',
@@ -33,33 +63,41 @@ const VALID_ISSUE = {
     },
   ],
   footer: {
-    disclaimer:
-      'This newsletter is informational only and is not legal advice. No attorney-client relationship is formed.',
-    subscribe_url: 'https://fintechlaw.ai/subscribe',
-    physical_address: 'FinTech Law LLC, Washington, DC',
+    disclaimer: NEWSLETTER_FOOTER_DISCLAIMER,
+    subscribe_url: NEWSLETTER_SUBSCRIBE_URL,
+    physical_address: NEWSLETTER_PHYSICAL_ADDRESS,
   },
 };
 
 describe('IssueJsonSchema', () => {
-  it('parses a valid Briefing issue', () => {
+  it('parses a valid Financial Edge issue', () => {
     const issue = parseIssueJson(VALID_ISSUE);
-    expect(issue.slug).toBe('briefing-sec-enforcement-2026-06');
+    expect(issue.slug).toBe('financial-edge-sec-enforcement-2026-06');
   });
 
-  it('rejects legacy author title', () => {
+  it('rejects wrong author title', () => {
     expect(() =>
       parseIssueJson({
         ...VALID_ISSUE,
-        author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
+        author: { name: 'Bo Howell', title: 'Managing Director & CEO' },
       })
     ).toThrow();
   });
 
-  it('rejects legacy series title', () => {
+  it('rejects legacy Briefing series title', () => {
     expect(() =>
       parseIssueJson({
         ...VALID_ISSUE,
-        title: 'The Financial Edge',
+        title: 'The Briefing — SEC Enforcement',
+      })
+    ).toThrow();
+  });
+
+  it('rejects fewer than two feature panels', () => {
+    expect(() =>
+      parseIssueJson({
+        ...VALID_ISSUE,
+        panels: VALID_ISSUE.panels.filter((p) => p.kind !== 'feature' || p.section_no === 1),
       })
     ).toThrow();
   });
@@ -75,7 +113,7 @@ describe('lintNewsletterIssue', () => {
   it('blocks superlatives (ABA 7.1)', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
-      intro: 'We are the best law firm for fintech founders.',
+      intro: `${LONG_COPY} We are the best law firm for fintech founders.`,
     });
     expect(result.pass).toBe(false);
     expect(result.violations.some((v) => v.includes('superlative'))).toBe(true);
@@ -84,7 +122,7 @@ describe('lintNewsletterIssue', () => {
   it('blocks schema-invalid author title', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
-      author: { name: 'Bo Howell', title: 'Founder & Managing Attorney' },
+      author: { name: 'Bo Howell', title: 'Managing Director' },
     });
     expect(result.pass).toBe(false);
     expect(result.violations[0]).toMatch(/schema/i);
@@ -97,7 +135,7 @@ describe('lintNewsletterIssue', () => {
         ...VALID_ISSUE.panels,
         {
           kind: 'spotlight',
-          section_no: 3,
+          section_no: 5,
           kicker: 'SPOTLIGHT',
           headline: 'Partner update',
           dek: 'Platform partner news',
@@ -109,28 +147,16 @@ describe('lintNewsletterIssue', () => {
     expect(result.violations.some((v) => v.includes('spotlight'))).toBe(true);
   });
 
-  it('blocks contractions in Briefing voice', () => {
-    const result = lintNewsletterIssue({
-      ...VALID_ISSUE,
-      intro: "This edition tracks what fund managers shouldn't ignore.",
-    });
-    expect(result.pass).toBe(false);
-    expect(result.violations.some((v) => v.includes('contractions'))).toBe(true);
-  });
-
   it('blocks out-of-order panels', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
-      panels: [
-        VALID_ISSUE.panels[1],
-        VALID_ISSUE.panels[0],
-      ],
+      panels: [VALID_ISSUE.panels[3], VALID_ISSUE.panels[0], VALID_ISSUE.panels[1], VALID_ISSUE.panels[2]],
     });
     expect(result.pass).toBe(false);
     expect(result.violations.some((v) => v.includes('panel order'))).toBe(true);
   });
 
-  it('blocks missing footer disclaimer language', () => {
+  it('blocks non-verbatim footer disclaimer', () => {
     const result = lintNewsletterIssue({
       ...VALID_ISSUE,
       footer: {
@@ -139,5 +165,16 @@ describe('lintNewsletterIssue', () => {
       },
     });
     expect(result.pass).toBe(false);
+  });
+
+  it('blocks word count outside 500–800', () => {
+    const result = lintNewsletterIssue({
+      ...VALID_ISSUE,
+      intro:
+        'This intro is intentionally short for testing word count enforcement across the full issue body and panel copy combined in the compliance linter.',
+      panels: VALID_ISSUE.panels.slice(0, 2),
+    });
+    expect(result.pass).toBe(false);
+    expect(result.violations.some((v) => v.includes('word count'))).toBe(true);
   });
 });

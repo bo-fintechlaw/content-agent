@@ -2,6 +2,7 @@ import express from 'express';
 import { renderNewsletterIssue } from '../pipeline/newsletter-renderer.js';
 import { publishNewsletterIssue } from '../pipeline/newsletter-publisher.js';
 import { lintNewsletterIssue } from '../utils/newsletter-compliance-linter.js';
+import { verifyNewsletterClaims, verifyNewsletterCitations } from '../utils/newsletter-verify.js';
 import { buildNewsletterPreviewHtml } from '../utils/newsletter-preview-html.js';
 import { fail, start, success } from '../utils/logger.js';
 
@@ -70,6 +71,32 @@ export function createNewsletterTaskRouter(supabase, config) {
     const issueJson = req.body?.issue_json ?? req.body;
     const lint = lintNewsletterIssue(issueJson);
     res.json({ ok: lint.pass, violations: lint.violations });
+  });
+
+  router.post('/newsletter/verify-claims', async (req, res) => {
+    start('POST /api/newsletter/verify-claims');
+    try {
+      const issueJson = req.body?.issue_json ?? req.body;
+      const result = await verifyNewsletterClaims(config, issueJson);
+      success('POST /api/newsletter/verify-claims', { ok: result.ok });
+      res.json(result);
+    } catch (error) {
+      fail('POST /api/newsletter/verify-claims', error);
+      res.status(500).json({ ok: false, violations: [error.message] });
+    }
+  });
+
+  router.post('/newsletter/verify-citations', async (req, res) => {
+    start('POST /api/newsletter/verify-citations');
+    try {
+      const issueJson = req.body?.issue_json ?? req.body;
+      const result = await verifyNewsletterCitations(config, issueJson);
+      success('POST /api/newsletter/verify-citations', { ok: result.ok });
+      res.json(result);
+    } catch (error) {
+      fail('POST /api/newsletter/verify-citations', error);
+      res.status(500).json({ ok: false, violations: [error.message] });
+    }
   });
 
   router.get('/newsletter-issues/:id/preview', async (req, res) => {

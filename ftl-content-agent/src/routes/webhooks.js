@@ -16,6 +16,7 @@ import {
   fleetSupabaseFromConfig,
   handleNewsletterSlackInteraction,
   isNewsletterSlackAction,
+  regenerateNewsletterSocialCard,
 } from '../integrations/cmo-newsletter-slack.js';
 
 export function createSlackWebhookRouter(supabase, config) {
@@ -374,6 +375,30 @@ export function createSlackWebhookRouter(supabase, config) {
 }
 
 async function handleViewSubmission(supabase, config, payload, res) {
+  if (payload.view?.callback_id === 'newsletter_social_feedback_modal') {
+    const { issueId } = JSON.parse(payload.view.private_metadata ?? '{}');
+    const feedback =
+      payload.view.state?.values?.feedback_block?.feedback_text?.value ?? '';
+    if (!issueId || !feedback.trim()) {
+      return res.status(200).json({ response_action: 'clear' });
+    }
+    res.status(200).json({ response_action: 'clear' });
+    const fleetSupabase = fleetSupabaseFromConfig(config);
+    if (!fleetSupabase) {
+      fail('handleViewSubmission:newsletterSocial', new Error('fleet supabase not configured'));
+      return;
+    }
+    try {
+      await regenerateNewsletterSocialCard(fleetSupabase, config, {
+        issueId,
+        feedback: feedback.trim(),
+      });
+    } catch (error) {
+      fail('handleViewSubmission:newsletterSocial', error, { issueId });
+    }
+    return;
+  }
+
   if (payload.view?.callback_id !== 'feedback_modal') {
     return res.status(200).json({ response_action: 'clear' });
   }

@@ -50,6 +50,53 @@ export async function sendNewsletterEmail(client, params) {
 
 /**
  * @param {import('resend').Resend} client
+ * @param {{ audienceId: string, email: string, firstName?: string }} params
+ */
+export async function addContactToAudience(client, params) {
+  start('addContactToAudience', { audienceId: params.audienceId, email: params.email });
+  const result = await breaker.execute(
+    () =>
+      client.contacts.create({
+        audienceId: params.audienceId,
+        email: params.email,
+        firstName: params.firstName,
+        unsubscribed: false,
+      }),
+    { data: null, error: 'resend_contact_unavailable' }
+  );
+  if (result?.error) {
+    fail('addContactToAudience', new Error(String(result.error)));
+    throw new Error(String(result.error));
+  }
+  success('addContactToAudience', { id: result?.data?.id });
+  return result?.data;
+}
+
+/**
+ * @param {import('resend').Resend} client
+ * @param {{ audienceId: string, email: string }} params
+ */
+export async function removeContactFromAudience(client, params) {
+  start('removeContactFromAudience', { audienceId: params.audienceId, email: params.email });
+  const result = await breaker.execute(
+    () =>
+      client.contacts.remove({
+        audienceId: params.audienceId,
+        email: params.email,
+      }),
+    { data: null, error: 'resend_contact_remove_unavailable' }
+  );
+  if (result?.error) {
+    fail('removeContactFromAudience', new Error(String(result.error)));
+    throw new Error(String(result.error));
+  }
+  success('removeContactFromAudience', { email: params.email });
+  return result?.data;
+}
+
+/**
+ * Create and send a broadcast to a Resend audience.
+ * @param {import('resend').Resend} client
  * @param {{
  *   audienceId: string,
  *   from: string,
@@ -60,7 +107,7 @@ export async function sendNewsletterEmail(client, params) {
  */
 export async function sendNewsletterBroadcast(client, params) {
   start('sendNewsletterBroadcast', { audienceId: params.audienceId });
-  const result = await breaker.execute(
+  const createResult = await breaker.execute(
     () =>
       client.broadcasts.create({
         audienceId: params.audienceId,
@@ -71,10 +118,25 @@ export async function sendNewsletterBroadcast(client, params) {
       }),
     { data: null, error: 'resend_broadcast_unavailable' }
   );
-  if (result?.error) {
-    fail('sendNewsletterBroadcast', new Error(String(result.error)));
-    throw new Error(String(result.error));
+  if (createResult?.error) {
+    fail('sendNewsletterBroadcast:create', new Error(String(createResult.error)));
+    throw new Error(String(createResult.error));
   }
-  success('sendNewsletterBroadcast', { id: result?.data?.id });
-  return result?.data;
+
+  const broadcastId = createResult?.data?.id;
+  if (!broadcastId) {
+    throw new Error('Resend broadcast created but no id returned');
+  }
+
+  const sendResult = await breaker.execute(
+    () => client.broadcasts.send(broadcastId),
+    { data: null, error: 'resend_broadcast_send_unavailable' }
+  );
+  if (sendResult?.error) {
+    fail('sendNewsletterBroadcast:send', new Error(String(sendResult.error)));
+    throw new Error(String(sendResult.error));
+  }
+
+  success('sendNewsletterBroadcast', { id: broadcastId });
+  return { id: broadcastId };
 }

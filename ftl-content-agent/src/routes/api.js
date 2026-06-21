@@ -18,8 +18,7 @@ import axios from 'axios';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
 import { createNewsletterTaskRouter } from './newsletter-tasks.js';
-import { createNewsletterWebhookRouter } from './newsletter-webhooks.js';
-import { createSubscribeRouter } from './newsletter-subscribe.js';
+import { createSubscribeRouter } from './subscribe.js';
 
 /**
  * API routes — Phase 1: health + stubs. Later: suggest-topic, topics, drafts.
@@ -656,7 +655,6 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
 
   if (fleetDb) {
     router.use('/', createNewsletterTaskRouter(fleetDb, config));
-    router.use('/', createNewsletterWebhookRouter(fleetDb));
     router.use('/', createSubscribeRouter(fleetDb, config));
   }
 
