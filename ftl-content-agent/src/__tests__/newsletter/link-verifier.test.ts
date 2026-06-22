@@ -1,5 +1,10 @@
 import { jest } from '@jest/globals';
-import { BRIEFING_AUTHOR_TITLE, parseIssueJson } from '../../schemas/newsletter.js';
+import {
+  NEWSLETTER_FOOTER_DISCLAIMER,
+  NEWSLETTER_PHYSICAL_ADDRESS,
+  NEWSLETTER_SUBSCRIBE_URL,
+} from '../../constants/newsletter-brand.js';
+import { NEWSLETTER_AUTHOR_TITLE, parseIssueJson } from '../../schemas/newsletter.js';
 
 const mockHead = jest.fn();
 const mockGet = jest.fn();
@@ -14,13 +19,14 @@ await jest.unstable_mockModule('axios', () => ({
 const { verifyNewsletterBlogLinks } = await import('../../utils/newsletter-link-verifier.js');
 
 const ISSUE_WITH_LINKS = parseIssueJson({
-  title: 'The Briefing — SEC Enforcement',
+  title: 'The Financial Edge — SEC Enforcement',
   segment: 'financial_services',
   issue_date: '2026-06-25',
-  slug: 'briefing-sec-enforcement-2026-06',
-  author: { name: 'Bo Howell', title: BRIEFING_AUTHOR_TITLE },
-  intro: 'Named SEC enforcement patterns and concrete action items.',
-  toc: ['SEC roundup'],
+  slug: 'financial-edge-sec-enforcement-2026-06',
+  author: { name: 'Bo Howell', title: NEWSLETTER_AUTHOR_TITLE },
+  intro:
+    'Named SEC enforcement patterns and concrete action items for fund managers reviewing marketing substantiation files, AI governance controls, and examination readiness workflows across advisory operations.',
+  toc: ['SEC roundup', 'Marketing rule'],
   panels: [
     {
       kind: 'feature',
@@ -34,8 +40,19 @@ const ISSUE_WITH_LINKS = parseIssueJson({
       blog_url: 'https://fintechlaw.ai/blog/post-a',
     },
     {
-      kind: 'action_items',
+      kind: 'feature',
       section_no: 2,
+      kicker: 'ANALYSIS · 02',
+      headline: 'Second story',
+      dek: 'Another dek.',
+      stats: [{ value: '3', label: 'cases' }],
+      pull_quote: 'Quote two.',
+      action_list: ['Review filings'],
+      blog_url: 'https://fintechlaw.ai/blog/post-b',
+    },
+    {
+      kind: 'action_items',
+      section_no: 3,
       kicker: 'ACTION ITEMS',
       headline: 'What to do now',
       dek: 'Steps by firm type.',
@@ -44,10 +61,9 @@ const ISSUE_WITH_LINKS = parseIssueJson({
     },
   ],
   footer: {
-    disclaimer:
-      'This newsletter is informational only and is not legal advice. No attorney-client relationship is formed.',
-    subscribe_url: 'https://fintechlaw.ai/subscribe',
-    physical_address: 'FinTech Law LLC, Washington, DC',
+    disclaimer: NEWSLETTER_FOOTER_DISCLAIMER,
+    subscribe_url: NEWSLETTER_SUBSCRIBE_URL,
+    physical_address: NEWSLETTER_PHYSICAL_ADDRESS,
   },
 });
 
@@ -63,7 +79,7 @@ describe('verifyNewsletterBlogLinks', () => {
     const result = await verifyNewsletterBlogLinks(ISSUE_WITH_LINKS);
     expect(result.pass).toBe(true);
     expect(result.failures).toHaveLength(0);
-    expect(mockHead).toHaveBeenCalledTimes(1);
+    expect(mockHead).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to GET when HEAD fails', async () => {
@@ -72,7 +88,7 @@ describe('verifyNewsletterBlogLinks', () => {
 
     const result = await verifyNewsletterBlogLinks(ISSUE_WITH_LINKS);
     expect(result.pass).toBe(true);
-    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(mockGet).toHaveBeenCalledTimes(2);
   });
 
   it('reports failures for broken URLs', async () => {
@@ -81,7 +97,7 @@ describe('verifyNewsletterBlogLinks', () => {
 
     const result = await verifyNewsletterBlogLinks(ISSUE_WITH_LINKS);
     expect(result.pass).toBe(false);
-    expect(result.failures).toHaveLength(1);
+    expect(result.failures.length).toBeGreaterThan(0);
     expect(result.failures[0].url).toBe('https://fintechlaw.ai/blog/post-a');
   });
 

@@ -84,7 +84,7 @@ export async function renderNewsletterIssue(supabase, config, input) {
       unsubscribeUrl: `${PUBLIC_SITE}/unsubscribe`,
     });
     const sent = await sendNewsletterEmail(resend, {
-      from: config.RESEND_FROM_EMAIL || 'FinTech Law <newsletter@fintechlaw.ai>',
+      from: config.RESEND_FROM,
       to: [config.NEWSLETTER_TEST_EMAIL],
       subject: `[TEST] ${issue.title} — ${issue.issue_date}`,
       html,

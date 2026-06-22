@@ -1,18 +1,21 @@
 import { z } from 'zod';
+import {
+  NEWSLETTER_AUTHOR_TITLE,
+  titlePrefixForSegment,
+} from '../constants/newsletter-brand.js';
+
+export { NEWSLETTER_AUTHOR_TITLE } from '../constants/newsletter-brand.js';
 
 export const NEWSLETTER_SEGMENTS = /** @type {const} */ ([
   'financial_services',
   'tech_ai_legal',
 ]);
 
-/** Masthead series title — "The Briefing — {theme}" */
-export const BRIEFING_TITLE_RE = /^The Briefing — .+/;
-
-export const BRIEFING_AUTHOR_TITLE = 'Managing Director & CEO';
+/** @typedef {typeof NEWSLETTER_SEGMENTS[number]} NewsletterSegment */
 
 export const NewsletterAuthorSchema = z.object({
   name: z.string().min(1),
-  title: z.literal(BRIEFING_AUTHOR_TITLE),
+  title: z.literal(NEWSLETTER_AUTHOR_TITLE),
 });
 
 export const NewsletterStatSchema = z.object({
@@ -63,6 +66,7 @@ export const NewsletterActionItemsPanelSchema = NewsletterPanelBaseSchema.extend
 export const NewsletterSpotlightPanelSchema = NewsletterPanelBaseSchema.extend({
   kind: z.literal('spotlight'),
   body: z.string().min(1),
+  enzio_supplied: z.boolean().optional(),
 });
 
 export const NewsletterPanelSchema = z.discriminatedUnion('kind', [
@@ -78,27 +82,40 @@ export const NewsletterFooterSchema = z.object({
   physical_address: z.string().min(10),
 });
 
+/** Canonical panel order: features → compliance_corner → action_items → spotlight. */
+export const PANEL_KIND_ORDER = ['feature', 'compliance_corner', 'action_items', 'spotlight'];
+
 export const IssueJsonSchema = z
   .object({
-    title: z.string().regex(BRIEFING_TITLE_RE, 'title must match "The Briefing — {theme}"'),
+    title: z.string().min(1),
     segment: z.enum(NEWSLETTER_SEGMENTS),
     issue_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     slug: z.string().min(1),
     author: NewsletterAuthorSchema,
     intro: z.string().min(20),
     toc: z.array(z.string().min(1)).min(1),
-    panels: z.array(NewsletterPanelSchema).min(1),
+    panels: z.array(NewsletterPanelSchema).min(1).max(6),
     footer: NewsletterFooterSchema,
   })
   .superRefine((issue, ctx) => {
-    const features = issue.panels.filter((p) => p.kind === 'feature');
-    if (features.length !== 1) {
+    const titleRe = titlePrefixForSegment(issue.segment);
+    if (!titleRe.test(issue.title)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'exactly one feature panel required',
+        message: `title must start with segment prefix (e.g. "${issue.segment === 'financial_services' ? 'The Financial Edge —' : 'The Startup Solution —'}")`,
+        path: ['title'],
+      });
+    }
+
+    const features = issue.panels.filter((p) => p.kind === 'feature');
+    if (features.length < 2 || features.length > 3) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '2–3 feature panels required',
         path: ['panels'],
       });
     }
+
     const spotlights = issue.panels.filter((p) => p.kind === 'spotlight');
     if (spotlights.length > 1) {
       ctx.addIssue({

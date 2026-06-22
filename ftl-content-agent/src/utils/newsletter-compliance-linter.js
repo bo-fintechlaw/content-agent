@@ -1,8 +1,9 @@
 import {
-  BRIEFING_AUTHOR_TITLE,
-  BRIEFING_TITLE_RE,
-  IssueJsonSchema,
-} from '../schemas/newsletter.js';
+  NEWSLETTER_AUTHOR_TITLE,
+  NEWSLETTER_FOOTER_DISCLAIMER,
+  titlePrefixForSegment,
+} from '../constants/newsletter-brand.js';
+import { IssueJsonSchema, PANEL_KIND_ORDER } from '../schemas/newsletter.js';
 
 const SUPERLATIVE_RE =
   /\b(best|#1|number one|top[- ]rated|leading|premier|guarantee(?:d)?|we will win|assured results?)\b/i;
@@ -12,14 +13,12 @@ const ENZIO_LEGAL_ADVICE_RE =
   /\b(we provide legal advice|our law firm|attorney-client relationship)\b/i;
 const DISALLOWED_JURISDICTION_RE =
   /\b(practicing law in|licensed in|admitted in)\s+(?!dc|district of columbia|nevada|ohio)\w+/i;
-const CONTRACTION_RE =
-  /\b(isn't|aren't|wasn't|weren't|doesn't|don't|didn't|won't|wouldn't|couldn't|shouldn't|can't|it's|that's|there's|here's|what's|who's|we're|they're|you're|i'm|i've|we've|they've|you've|i'll|we'll|they'll|you'll)\b/i;
 
-/** Canonical panel order for The Briefing (feature required; spotlight optional last). */
-const PANEL_KIND_ORDER = ['feature', 'compliance_corner', 'action_items', 'spotlight'];
+const WORD_COUNT_MIN = 500;
+const WORD_COUNT_MAX = 800;
 
 /**
- * Deterministic compliance linter — blocks before Slack card (Briefing v1).
+ * Deterministic compliance linter — blocks before Slack card.
  * @param {unknown} issueJson
  * @returns {{ pass: boolean, violations: string[] }}
  */
@@ -36,12 +35,13 @@ export function lintNewsletterIssue(issueJson) {
     };
   }
 
-  if (!BRIEFING_TITLE_RE.test(issue.title)) {
-    violations.push('title must match "The Briefing — {theme}"');
+  const titleRe = titlePrefixForSegment(issue.segment);
+  if (!titleRe.test(issue.title)) {
+    violations.push(`title must match segment prefix for ${issue.segment}`);
   }
 
-  if (issue.author.title !== BRIEFING_AUTHOR_TITLE) {
-    violations.push(`author.title must be "${BRIEFING_AUTHOR_TITLE}"`);
+  if (issue.author.title !== NEWSLETTER_AUTHOR_TITLE) {
+    violations.push(`author.title must be "${NEWSLETTER_AUTHOR_TITLE}"`);
   }
 
   const textBlob = collectSearchableText(issue);
@@ -52,15 +52,12 @@ export function lintNewsletterIssue(issueJson) {
   if (OUTCOME_GUARANTEE_RE.test(textBlob)) {
     violations.push('ABA 7.1: outcome guarantee language detected');
   }
-  if (CONTRACTION_RE.test(textBlob)) {
-    violations.push('voice: contractions are not permitted in Briefing copy');
-  }
   if (DISALLOWED_JURISDICTION_RE.test(textBlob)) {
     violations.push('jurisdiction: practice limited to DC / NV / OH');
   }
 
-  if (!issue.footer.disclaimer.toLowerCase().includes('not legal advice')) {
-    violations.push('footer: attorney-advertising disclaimer must state informational / not legal advice');
+  if (issue.footer.disclaimer.trim() !== NEWSLETTER_FOOTER_DISCLAIMER) {
+    violations.push('footer: disclaimer must match verbatim newsletter-brand constant');
   }
   if (!issue.footer.physical_address?.trim()) {
     violations.push('CAN-SPAM: physical mailing address required in footer');
@@ -70,8 +67,11 @@ export function lintNewsletterIssue(issueJson) {
   }
 
   const features = issue.panels.filter((p) => p.kind === 'feature');
-  if (features.length !== 1) {
-    violations.push('content: exactly one feature panel required');
+  if (features.length < 2 || features.length > 3) {
+    violations.push('content: 2–3 feature panels required');
+  }
+  if (issue.panels.length > 6) {
+    violations.push('content: at most 6 panels total');
   }
   for (const panel of features) {
     if (!panel.blog_url) {
@@ -95,26 +95,45 @@ export function lintNewsletterIssue(issueJson) {
     }
   }
 
+  const wordCount = countWords(textBlob);
+  if (wordCount < WORD_COUNT_MIN || wordCount > WORD_COUNT_MAX) {
+    violations.push(`word count: ${wordCount} words (required ${WORD_COUNT_MIN}–${WORD_COUNT_MAX})`);
+  }
+
   return { pass: violations.length === 0, violations };
 }
 
 /**
- * Panels must follow feature → compliance_corner → action_items → spotlight.
  * @param {import('../schemas/newsletter.js').IssueJsonSchema['_output']['panels']} panels
  */
 function validatePanelOrder(panels) {
   let lastIdx = -1;
+  let seenNonFeature = false;
+
   for (const panel of panels) {
+    if (panel.kind !== 'feature' && !seenNonFeature) {
+      seenNonFeature = true;
+    }
+    if (panel.kind === 'feature' && seenNonFeature) {
+      return 'panel order: all feature panels must appear before compliance_corner / action_items / spotlight';
+    }
+
     const idx = PANEL_KIND_ORDER.indexOf(panel.kind);
     if (idx < lastIdx) {
       return `panel order: ${panel.kind} must not appear before earlier sections (expected ${PANEL_KIND_ORDER.join(' → ')})`;
     }
     lastIdx = idx;
   }
+
   if (panels.length && panels[0].kind !== 'feature') {
     return 'panel order: first panel must be feature';
   }
   return null;
+}
+
+/** @param {string} text */
+function countWords(text) {
+  return text.split(/\s+/).filter(Boolean).length;
 }
 
 /** @param {import('../schemas/newsletter.js').IssueJsonSchema['_output']} issue */
