@@ -33,7 +33,7 @@ export function createSanityClient(config) {
   }
 }
 
-export function buildBlogDocument(draft) {
+export function buildBlogDocument(draft, options = {}) {
   const mainContent = blogSectionsToMainContent(draft.blog_body);
   const existingAssetRef = String(draft.image_asset_ref ?? '').trim();
   const shareImage = existingAssetRef
@@ -43,7 +43,7 @@ export function buildBlogDocument(draft) {
         instruction: draft.image_prompt,
       };
 
-  return {
+  const doc = {
     _type: 'blog',
     title: draft.blog_title,
     slug: { _type: 'slug', current: draft.blog_slug },
@@ -59,6 +59,13 @@ export function buildBlogDocument(draft) {
     category: draft.blog_category,
     mainContent,
   };
+
+  const authorName = options.authorName ?? draft.author_name;
+  const authorTitle = options.authorTitle ?? draft.author_title;
+  if (authorName) doc.authorName = authorName;
+  if (authorTitle) doc.authorTitle = authorTitle;
+
+  return doc;
 }
 export async function createAndPublishBlogFromDraft({
   client,
@@ -68,6 +75,7 @@ export async function createAndPublishBlogFromDraft({
   pollIntervalMs = 2000,
   generateImage = true,
   publishAfterCreate = true,
+  sanityAuthor = {},
 }) {
   start('createAndPublishBlogFromDraft', { draftId: draft?.id });
 
@@ -76,7 +84,10 @@ export async function createAndPublishBlogFromDraft({
   const draftDocId = `drafts.${baseId}`;
   const publishedId = baseId;
 
-  const blogDoc = { ...buildBlogDocument(draft), _id: draftDocId };
+  const blogDoc = {
+    ...buildBlogDocument(draft, sanityAuthor),
+    _id: draftDocId,
+  };
 
   const created = await breaker.execute(() => client.create(blogDoc));
   if (created?.error) throw new Error(String(created.error));
