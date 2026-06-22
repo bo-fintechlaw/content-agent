@@ -68,8 +68,13 @@ const OPTIONAL_STRING = [
   'NOTION_DB_ACTIVITY_LOG',
   'APP_BASE_URL',
   'RESEND_API_KEY',
-  'RESEND_AUDIENCE_ID',
+  'RESEND_FROM',
   'RESEND_FROM_EMAIL',
+  'RESEND_AUDIENCE_ID',
+  'RESEND_AUDIENCE_FINANCIAL_SERVICES',
+  'RESEND_AUDIENCE_TECH_AI_LEGAL',
+  'RESEND_WEBHOOK_SECRET',
+  'NEWSLETTER_TOKEN_SECRET',
   'NEWSLETTER_TEST_EMAIL',
   'NEWSLETTER_TASK_SECRET',
   'SLACK_CMO_BO_CHANNEL_ID',
@@ -243,8 +248,18 @@ export function validateEnv() {
 
   config.RESEND_API_KEY = (optional.RESEND_API_KEY ?? '').trim();
   config.RESEND_AUDIENCE_ID = (optional.RESEND_AUDIENCE_ID ?? '').trim();
-  config.RESEND_FROM_EMAIL =
-    (optional.RESEND_FROM_EMAIL ?? '').trim() || 'FinTech Law <newsletter@fintechlaw.ai>';
+  config.RESEND_AUDIENCE_FINANCIAL_SERVICES = (
+    optional.RESEND_AUDIENCE_FINANCIAL_SERVICES ?? ''
+  ).trim();
+  config.RESEND_AUDIENCE_TECH_AI_LEGAL = (optional.RESEND_AUDIENCE_TECH_AI_LEGAL ?? '').trim();
+  config.RESEND_WEBHOOK_SECRET = (optional.RESEND_WEBHOOK_SECRET ?? '').trim();
+  config.NEWSLETTER_TOKEN_SECRET = (optional.NEWSLETTER_TOKEN_SECRET ?? '').trim();
+  const resendFrom =
+    (optional.RESEND_FROM ?? '').trim() ||
+    (optional.RESEND_FROM_EMAIL ?? '').trim() ||
+    'FinTech Law <newsletter@fintechlaw.ai>';
+  config.RESEND_FROM = resendFrom;
+  config.RESEND_FROM_EMAIL = resendFrom;
   config.NEWSLETTER_TEST_EMAIL = (optional.NEWSLETTER_TEST_EMAIL ?? '').trim();
   config.NEWSLETTER_TASK_SECRET = (optional.NEWSLETTER_TASK_SECRET ?? '').trim();
   config.SLACK_CMO_BO_CHANNEL_ID =

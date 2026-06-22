@@ -6,6 +6,7 @@ import { initializeMcpConnections } from '../dist/mcp/mcpManager.js';
 import { createSupabaseClient, createFleetSupabaseClient } from './db/supabase.js';
 import { createApiRouter } from './routes/api.js';
 import { createSlackWebhookRouter } from './routes/webhooks.js';
+import { createResendWebhookRouter } from './routes/webhooks-resend.js';
 import { runSourceScan } from './pipeline/scanner.js';
 import { runTopicRanking } from './pipeline/ranker.js';
 import { runDrafting } from './pipeline/drafter.js';
@@ -80,6 +81,9 @@ async function main() {
   // Mount Slack before express.json() so /slack/* routes keep the raw body for
   // signing-secret verification (url_verification uses application/json).
   app.use('/slack', createSlackWebhookRouter(supabaseClient, config));
+  if (fleetSupabaseClient) {
+    app.use('/api', createResendWebhookRouter(fleetSupabaseClient, config));
+  }
   app.use(express.json());
 
   app.get('/health', (_req, res) => {

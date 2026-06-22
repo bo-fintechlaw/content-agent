@@ -1,6 +1,8 @@
 import { Client as NotionClient } from '@notionhq/client';
 import { createFleetSupabaseClient } from '../db/supabase.js';
 import { createSlackClient, sendStatusMessage } from './slack.js';
+import { generateNewsletterLinkedInPost } from '../pipeline/newsletter-social-generator.js';
+import { postNewsletterSocial } from '../pipeline/newsletter-social-poster.js';
 import { fail, start, success } from '../utils/logger.js';
 
 const NEWSLETTER_ACTIONS = new Set([
@@ -9,11 +11,17 @@ const NEWSLETTER_ACTIONS = new Set([
   'edit_newsletter_issue',
 ]);
 
+const NEWSLETTER_SOCIAL_ACTIONS = new Set([
+  'approve_newsletter_social',
+  'request_changes_newsletter_social',
+  'reject_newsletter_social',
+]);
+
 /**
  * @param {string} actionId
  */
 export function isNewsletterSlackAction(actionId) {
-  return NEWSLETTER_ACTIONS.has(actionId);
+  return NEWSLETTER_ACTIONS.has(actionId) || NEWSLETTER_SOCIAL_ACTIONS.has(actionId);
 }
 
 /**
@@ -26,7 +34,7 @@ export function fleetSupabaseFromConfig(config) {
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} fleetSupabase
  * @param {ReturnType<typeof import('../config/env.js').validateEnv>} config
- * @param {{ actions?: Array<{ action_id: string, value?: string }>, user?: { id: string } }} payload
+ * @param {{ actions?: Array<{ action_id: string, value?: string }>, user?: { id: string }, trigger_id?: string }} payload
  */
 export async function handleNewsletterSlackInteraction(fleetSupabase, config, payload) {
   const action = payload.actions?.[0];
@@ -38,6 +46,7 @@ export async function handleNewsletterSlackInteraction(fleetSupabase, config, pa
     actionId: parsed.actionId,
     issueId: parsed.issueId,
     slackUserId,
+    triggerId: payload.trigger_id,
   };
 
   switch (action.action_id) {
@@ -47,23 +56,103 @@ export async function handleNewsletterSlackInteraction(fleetSupabase, config, pa
       return discardNewsletterIssue(fleetSupabase, base);
     case 'edit_newsletter_issue':
       return requestNewsletterEdit(fleetSupabase, base);
+    case 'approve_newsletter_social':
+      return approveNewsletterSocial(fleetSupabase, config, base);
+    case 'request_changes_newsletter_social':
+      return requestNewsletterSocialChanges(fleetSupabase, config, base);
+    case 'reject_newsletter_social':
+      return rejectNewsletterSocial(fleetSupabase, base);
     default:
       return null;
   }
 }
 
+/**
+ * Gate 2 — LinkedIn social review card after publish.
+ * @param {import('@slack/web-api').WebClient} client
+ * @param {string} channel
+ * @param {{ issueId: string, title: string, archiveUrl: string, carouselUrls: string[], linkedinPost: string }} payload
+ */
+export async function sendNewsletterSocialReviewCard(client, channel, payload) {
+  start('sendNewsletterSocialReviewCard', { issueId: payload.issueId });
+
+  const carouselPreview = payload.carouselUrls?.[0]
+    ? `<${payload.carouselUrls[0]}|Panel 1> · ${payload.carouselUrls.length} carousel panels`
+    : '_No carousel images generated._';
+
+  const actionValue = JSON.stringify({ issueId: payload.issueId });
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: 'Newsletter Social — LinkedIn Review', emoji: true },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*${payload.title}*\nArchive: <${payload.archiveUrl}|View issue>\nCarousel: ${carouselPreview}`,
+      },
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*LinkedIn post copy (full)*\n${String(payload.linkedinPost ?? '').slice(0, 2800)}`,
+      },
+    },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Approve & Post to LinkedIn' },
+          style: 'primary',
+          action_id: 'approve_newsletter_social',
+          value: actionValue,
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Request Changes' },
+          action_id: 'request_changes_newsletter_social',
+          value: actionValue,
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Skip Social' },
+          style: 'danger',
+          action_id: 'reject_newsletter_social',
+          value: actionValue,
+        },
+      ],
+    },
+  ];
+
+  const result = await client.chat.postMessage({
+    channel,
+    text: `Newsletter social review: ${payload.title}`,
+    blocks,
+  });
+  success('sendNewsletterSocialReviewCard', { issueId: payload.issueId, ts: result.ts });
+  return result;
+}
+
 async function approveNewsletterIssue(fleetSupabase, config, args) {
   start('approveNewsletterIssue', { issueId: args.issueId });
 
-  const { error: actionErr } = await fleetSupabase
-    .from('agent_actions')
-    .update({
-      status: 'approved',
-      updated_at: new Date().toISOString(),
-      user_id: args.slackUserId,
-    })
-    .eq('id', args.actionId);
-  if (actionErr) throw new Error(actionErr.message);
+  if (args.actionId) {
+    const { error: actionErr } = await fleetSupabase
+      .from('agent_actions')
+      .update({
+        status: 'approved',
+        updated_at: new Date().toISOString(),
+        user_id: args.slackUserId,
+      })
+      .eq('id', args.actionId);
+    if (actionErr) throw new Error(actionErr.message);
+  }
 
   const { error: issueErr } = await fleetSupabase
     .from('newsletter_issues')
@@ -96,7 +185,7 @@ async function approveNewsletterIssue(fleetSupabase, config, args) {
       await sendStatusMessage(
         slack,
         channelId,
-        `:white_check_mark: Newsletter approved and published (issue \`${args.issueId}\`).`
+        `:white_check_mark: Newsletter approved and published (issue \`${args.issueId}\`). LinkedIn social card posted for Gate 2 review.`
       );
     } catch (slackErr) {
       fail('approveNewsletterIssue:slack', slackErr);
@@ -105,6 +194,124 @@ async function approveNewsletterIssue(fleetSupabase, config, args) {
 
   success('approveNewsletterIssue', { issueId: args.issueId });
   return body;
+}
+
+async function approveNewsletterSocial(fleetSupabase, config, args) {
+  start('approveNewsletterSocial', { issueId: args.issueId });
+  const result = await postNewsletterSocial(fleetSupabase, config, { issueId: args.issueId });
+
+  const channelId = config.SLACK_CMO_BO_CHANNEL_ID || config.SLACK_CHANNEL_ID;
+  if (config.SLACK_BOT_TOKEN && channelId) {
+    try {
+      const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+      await sendStatusMessage(
+        slack,
+        channelId,
+        `:linkedin: Newsletter LinkedIn carousel posted (issue \`${args.issueId}\`, post \`${result.linkedin_post_id ?? 'n/a'}\`).`
+      );
+    } catch (slackErr) {
+      fail('approveNewsletterSocial:slack', slackErr);
+    }
+  }
+
+  success('approveNewsletterSocial', { issueId: args.issueId });
+  return result;
+}
+
+async function requestNewsletterSocialChanges(fleetSupabase, config, args) {
+  start('requestNewsletterSocialChanges', { issueId: args.issueId });
+  if (!args.triggerId || !config.SLACK_BOT_TOKEN) {
+    throw new Error('Missing Slack trigger for feedback modal');
+  }
+
+  const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+  await slack.views.open({
+    trigger_id: args.triggerId,
+    view: {
+      type: 'modal',
+      callback_id: 'newsletter_social_feedback_modal',
+      private_metadata: JSON.stringify({ issueId: args.issueId }),
+      title: { type: 'plain_text', text: 'Revise LinkedIn Copy' },
+      submit: { type: 'plain_text', text: 'Regenerate' },
+      close: { type: 'plain_text', text: 'Cancel' },
+      blocks: [
+        {
+          type: 'input',
+          block_id: 'feedback_block',
+          label: { type: 'plain_text', text: 'What should change in the LinkedIn post?' },
+          element: {
+            type: 'plain_text_input',
+            action_id: 'feedback_text',
+            multiline: true,
+          },
+        },
+      ],
+    },
+  });
+
+  return { edit_requested: true, issue_id: args.issueId };
+}
+
+/**
+ * Handle modal submission for newsletter social feedback.
+ * @param {import('@supabase/supabase-js').SupabaseClient} fleetSupabase
+ * @param {Record<string, unknown>} config
+ * @param {{ issueId: string, feedback: string }} input
+ */
+export async function regenerateNewsletterSocialCard(fleetSupabase, config, input) {
+  start('regenerateNewsletterSocialCard', { issueId: input.issueId });
+
+  const { data: row, error } = await fleetSupabase
+    .from('newsletter_issues')
+    .select('id, issue_json, carousel_urls, web_preview_url')
+    .eq('id', input.issueId)
+    .single();
+  if (error) throw new Error(error.message);
+
+  const issue = row.issue_json;
+  const archiveUrl =
+    row.web_preview_url ?? `https://fintechlaw.ai/newsletters/${issue?.slug ?? ''}`;
+  const linkedinPost = await generateNewsletterLinkedInPost(config, {
+    issue,
+    archiveUrl,
+    feedback: input.feedback,
+  });
+
+  await fleetSupabase
+    .from('newsletter_issues')
+    .update({
+      linkedin_post: linkedinPost,
+      social_approved: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.issueId);
+
+  const channelId = config.SLACK_CMO_BO_CHANNEL_ID || config.SLACK_CHANNEL_ID;
+  if (config.SLACK_BOT_TOKEN && channelId) {
+    const slack = createSlackClient(config.SLACK_BOT_TOKEN);
+    await sendNewsletterSocialReviewCard(slack, channelId, {
+      issueId: input.issueId,
+      title: issue.title,
+      archiveUrl,
+      carouselUrls: row.carousel_urls ?? [],
+      linkedinPost,
+    });
+  }
+
+  success('regenerateNewsletterSocialCard', { issueId: input.issueId });
+  return { linkedin_post: linkedinPost };
+}
+
+async function rejectNewsletterSocial(fleetSupabase, args) {
+  start('rejectNewsletterSocial', { issueId: args.issueId });
+  await fleetSupabase
+    .from('newsletter_issues')
+    .update({
+      social_approved: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', args.issueId);
+  return { social_skipped: true, issue_id: args.issueId };
 }
 
 async function discardNewsletterIssue(fleetSupabase, args) {
