@@ -81,8 +81,10 @@ const OPTIONAL_STRING = [
   'RESEND_AUDIENCE_TECH_AI_LEGAL',
   'RESEND_WEBHOOK_SECRET',
   'NEWSLETTER_TOKEN_SECRET',
+  'NEWSLETTER_SITE_URL',
   'NEWSLETTER_TEST_EMAIL',
   'NEWSLETTER_TASK_SECRET',
+  'SLACK_CMO_SIGNING_SECRET',
   'SLACK_CMO_BO_CHANNEL_ID',
   'ENABLE_NEWSLETTER',
   'CMO_ASSEMBLE_URL',
@@ -178,6 +180,7 @@ export function validateEnv() {
     X_CLIENT_SECRET: optional.X_CLIENT_SECRET,
     SLACK_BOT_TOKEN: slackBotToken,
     SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET,
+    SLACK_CMO_SIGNING_SECRET: (optional.SLACK_CMO_SIGNING_SECRET ?? '').trim(),
     SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID,
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
@@ -281,6 +284,7 @@ export function validateEnv() {
   config.RESEND_AUDIENCE_TECH_AI_LEGAL = (optional.RESEND_AUDIENCE_TECH_AI_LEGAL ?? '').trim();
   config.RESEND_WEBHOOK_SECRET = (optional.RESEND_WEBHOOK_SECRET ?? '').trim();
   config.NEWSLETTER_TOKEN_SECRET = (optional.NEWSLETTER_TOKEN_SECRET ?? '').trim();
+  config.NEWSLETTER_SITE_URL = (optional.NEWSLETTER_SITE_URL ?? 'https://fintechlaw.ai').trim();
   const resendFrom =
     (optional.RESEND_FROM ?? '').trim() ||
     (optional.RESEND_FROM_EMAIL ?? '').trim() ||
