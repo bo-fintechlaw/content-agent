@@ -6,10 +6,21 @@ const SEGMENTS = [
   { id: 'both', label: 'Both newsletters' },
 ];
 
-const CONTENT_AGENT_URL =
-  process.env.NEXT_PUBLIC_CONTENT_AGENT_URL ?? 'https://content-agent.fintechlaw.ai';
+/** Same-origin Netlify function by default; override for local content-agent dev. */
+const SUBSCRIBE_API_URL =
+  process.env.NEXT_PUBLIC_SUBSCRIBE_API_URL ?? '/api/subscribe';
 
-export function SubscribeForm() {
+type SubscribeFormProps = {
+  source?: string;
+  heading?: string;
+  compact?: boolean;
+};
+
+export function SubscribeForm({
+  source = 'newsletter-page',
+  heading = 'Subscribe to the newsletter',
+  compact = false,
+}: SubscribeFormProps) {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -18,10 +29,10 @@ export function SubscribeForm() {
     const segments =
       segment === 'both' ? ['financial_services', 'tech_ai_legal'] : [segment];
 
-    const res = await fetch(`${CONTENT_AGENT_URL}/api/subscribe`, {
+    const res = await fetch(SUBSCRIBE_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, segments }),
+      body: JSON.stringify({ email, segments, source }),
     });
     if (!res.ok) {
       alert('Subscription request failed. Please try again.');
@@ -33,10 +44,20 @@ export function SubscribeForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-lg border border-[#d8dae3] bg-white p-6 shadow-sm"
+      className={
+        compact
+          ? 'rounded-lg border border-[#d8dae3] bg-white p-4 shadow-sm'
+          : 'rounded-lg border border-[#d8dae3] bg-white p-6 shadow-sm'
+      }
     >
-      <h2 className="font-['Playfair_Display',Georgia,serif] text-xl text-[#0A0A0A]">
-        Subscribe to the newsletter
+      <h2
+        className={
+          compact
+            ? "font-['Playfair_Display',Georgia,serif] text-lg text-[#0A0A0A]"
+            : "font-['Playfair_Display',Georgia,serif] text-xl text-[#0A0A0A]"
+        }
+      >
+        {heading}
       </h2>
       <p className="mt-2 text-sm text-[#525866]">
         Choose your segment. Double opt-in required.
