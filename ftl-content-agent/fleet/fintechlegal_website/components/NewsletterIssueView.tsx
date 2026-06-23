@@ -45,12 +45,24 @@ export type NewsletterIssue = {
   toc: string[];
   panels: Panel[];
   author: { name: string; title: string };
-  footer: { disclaimer: string; physical_address: string; subscribe_url?: string };
+  footer: {
+    disclaimer: string;
+    physical_address?: string;
+    subscribe_url?: string;
+    share_url?: string;
+    contact_url?: string;
+    unsubscribe_url?: string;
+  };
 };
 
 const LOGO = 'https://fintechlaw.ai/apple-touch-icon.png';
 const FONTS =
   'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=Playfair+Display:wght@400;700&display=swap';
+const SHARE_URL = 'https://fintechlaw.ai/newsletter';
+const CONTACT_URL = 'https://fintechlaw.ai/contact';
+const UNSUBSCRIBE_URL = 'https://fintechlaw.ai/unsubscribe';
+const SHARE_CTA = 'Know someone who should read this? Share the newsletter.';
+const CONTACT_CTA = 'Questions about your compliance posture? Contact our team.';
 
 function sectionLabel(kind: Panel['kind']) {
   if (kind === 'feature') return 'FROM THE BLOG';
@@ -107,7 +119,27 @@ export function NewsletterIssueView({ issue }: { issue: NewsletterIssue }) {
 
       <footer className="border-t border-[#d8dae3] bg-[#f4f4f6] px-6 py-6 text-sm text-[#525866]">
         <p>{issue.footer.disclaimer}</p>
-        <p>{issue.footer.physical_address}</p>
+        <p className="mt-4">
+          <a
+            href={issue.footer.share_url ?? SHARE_URL}
+            className="font-semibold text-[#D41367]"
+          >
+            {SHARE_CTA}
+          </a>
+        </p>
+        <p className="mt-3">
+          <a
+            href={issue.footer.contact_url ?? CONTACT_URL}
+            className="font-semibold text-[#D41367]"
+          >
+            {CONTACT_CTA}
+          </a>
+        </p>
+        <p className="mt-4 text-xs">
+          <a href={issue.footer.unsubscribe_url ?? UNSUBSCRIBE_URL} className="text-[#525866] underline">
+            Unsubscribe
+          </a>
+        </p>
         <p className="mt-4 text-[#0A0A0A]">
           — {issue.author.name}, {issue.author.title}
         </p>

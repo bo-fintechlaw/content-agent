@@ -8,6 +8,7 @@ import {
 import { parseIssueJson } from '../schemas/newsletter.js';
 import { buildNewsletterSanityDocument } from './newsletter-renderer.js';
 import { enrichIssueWithHeroImages } from './newsletter-hero-enrichment.js';
+import { pruneNewsletterArchivePages } from '../utils/newsletter-archive-retention.js';
 import { renderNewsletterCarousel } from '../integrations/newsletter-carousel.js';
 import { generateNewsletterLinkedInPost } from './newsletter-social-generator.js';
 import { sendNewsletterSocialReviewCard } from '../integrations/cmo-newsletter-slack.js';
@@ -71,6 +72,12 @@ export async function publishNewsletterIssue(supabase, config, input) {
     } catch (pubErr) {
       fail('publishNewsletterIssue:sanity', pubErr);
       throw pubErr;
+    }
+
+    try {
+      await pruneNewsletterArchivePages(sanityClient, issue);
+    } catch (pruneErr) {
+      fail('publishNewsletterIssue:archiveRetention', pruneErr, { slug: issue.slug });
     }
 
     if (config.NETLIFY_BUILD_HOOK) {
