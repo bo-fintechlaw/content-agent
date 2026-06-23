@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { FTL_BRAND } from '../emails/newsletter-brand-tokens.js';
@@ -7,6 +10,38 @@ import { start, success, fail } from '../utils/logger.js';
 const PANEL_WIDTH = 924;
 const PANEL_HEIGHT = 1316;
 const brand = FTL_BRAND.colors;
+const FONTS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../assets/fonts');
+
+/** @type {Promise<import('satori').FontOptions[]> | null} */
+let carouselFontsPromise = null;
+
+/**
+ * Load bundled brand fonts for satori (cached after first call).
+ * @returns {Promise<import('satori').FontOptions[]>}
+ */
+export async function loadCarouselFonts() {
+  if (!carouselFontsPromise) {
+    carouselFontsPromise = (async () => {
+      const readFont = (filename) => readFile(join(FONTS_DIR, filename));
+      const [hanken400, hanken600, hanken700, playfair400, playfair700] = await Promise.all([
+        readFont('HankenGrotesk-400.ttf'),
+        readFont('HankenGrotesk-600.ttf'),
+        readFont('HankenGrotesk-700.ttf'),
+        readFont('PlayfairDisplay-400.ttf'),
+        readFont('PlayfairDisplay-700.ttf'),
+      ]);
+
+      return [
+        { name: 'Hanken Grotesk', data: hanken400, weight: 400, style: 'normal' },
+        { name: 'Hanken Grotesk', data: hanken600, weight: 600, style: 'normal' },
+        { name: 'Hanken Grotesk', data: hanken700, weight: 700, style: 'normal' },
+        { name: 'Playfair Display', data: playfair400, weight: 400, style: 'normal' },
+        { name: 'Playfair Display', data: playfair700, weight: 700, style: 'normal' },
+      ];
+    })();
+  }
+  return carouselFontsPromise;
+}
 
 /**
  * Render carousel panel PNGs + transcripts; upload to Supabase storage when client provided.
@@ -18,6 +53,7 @@ export async function renderNewsletterCarousel(issue, opts = {}) {
   const { supabase } = opts;
   if (supabase) await ensureCarouselBucket(supabase);
 
+  const fonts = await loadCarouselFonts();
   const urls = [];
   const transcripts = [];
   const panels = [
@@ -33,7 +69,7 @@ export async function renderNewsletterCarousel(issue, opts = {}) {
     const svg = await satori(buildPanelElement(panel, issue), {
       width: PANEL_WIDTH,
       height: PANEL_HEIGHT,
-      fonts: [],
+      fonts,
     });
 
     const pngBuffer = svgToPng(svg);
@@ -98,7 +134,7 @@ function buildPanelElement(panel, issue) {
         background: `linear-gradient(160deg, ${brand.purple} 0%, ${brand.purpleDark} 55%, ${brand.black} 100%)`,
         color: brand.white,
         padding: 56,
-        fontFamily: 'system-ui, sans-serif',
+        fontFamily: FTL_BRAND.fonts.body,
       },
       children: [
         {
@@ -110,6 +146,7 @@ function buildPanelElement(panel, issue) {
               color: brand.pink,
               marginBottom: 20,
               textTransform: 'uppercase',
+              fontFamily: FTL_BRAND.fonts.ui,
             },
             children: sectionLabel,
           },
@@ -117,21 +154,39 @@ function buildPanelElement(panel, issue) {
         {
           type: 'div',
           props: {
-            style: { fontSize: 14, letterSpacing: 1, color: 'rgba(255,255,255,0.7)', marginBottom: 12 },
+            style: {
+              fontSize: 14,
+              letterSpacing: 1,
+              color: 'rgba(255,255,255,0.7)',
+              marginBottom: 12,
+              fontFamily: FTL_BRAND.fonts.body,
+            },
             children: issue.author.name,
           },
         },
         {
           type: 'h1',
           props: {
-            style: { fontSize: 46, lineHeight: 1.15, margin: 0, fontWeight: 700 },
+            style: {
+              fontSize: 46,
+              lineHeight: 1.15,
+              margin: 0,
+              fontWeight: 700,
+              fontFamily: FTL_BRAND.fonts.heading,
+            },
             children: String(headline).slice(0, 120),
           },
         },
         {
           type: 'p',
           props: {
-            style: { fontSize: 22, lineHeight: 1.45, marginTop: 28, color: 'rgba(255,255,255,0.88)' },
+            style: {
+              fontSize: 22,
+              lineHeight: 1.45,
+              marginTop: 28,
+              color: 'rgba(255,255,255,0.88)',
+              fontFamily: FTL_BRAND.fonts.body,
+            },
             children: String(body).slice(0, 380),
           },
         },
@@ -145,6 +200,7 @@ function buildPanelElement(panel, issue) {
               fontSize: 16,
               letterSpacing: 2,
               color: 'rgba(255,255,255,0.65)',
+              fontFamily: FTL_BRAND.fonts.ui,
             },
             children: 'fintechlaw.ai',
           },

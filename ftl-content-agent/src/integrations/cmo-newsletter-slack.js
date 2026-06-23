@@ -76,9 +76,11 @@ export async function handleNewsletterSlackInteraction(fleetSupabase, config, pa
 export async function sendNewsletterSocialReviewCard(client, channel, payload) {
   start('sendNewsletterSocialReviewCard', { issueId: payload.issueId });
 
-  const carouselPreview = payload.carouselUrls?.[0]
-    ? `<${payload.carouselUrls[0]}|Panel 1> · ${payload.carouselUrls.length} carousel panels`
-    : '_No carousel images generated._';
+  const carouselPreview = payload.carouselRenderError
+    ? `_Carousel render failed: ${payload.carouselRenderError}_`
+    : payload.carouselUrls?.[0]
+      ? `<${payload.carouselUrls[0]}|Panel 1> · ${payload.carouselUrls.length} carousel panels`
+      : '_No carousel images generated._';
 
   const actionValue = JSON.stringify({ issueId: payload.issueId });
 
