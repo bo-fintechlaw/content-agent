@@ -32,7 +32,6 @@ async function fetchIssue(slug: string): Promise<NewsletterIssue | null> {
       "author": { "name": authorName, "title": authorTitle },
       "footer": {
         "disclaimer": footerDisclaimer,
-        "physical_address": coalesce(physicalAddress, "FinTech Law LLC"),
         "subscribe_url": subscribeUrl
       }
     }`,

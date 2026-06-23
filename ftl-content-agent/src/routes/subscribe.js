@@ -113,7 +113,10 @@ export function createSubscribeRouter(supabase, config) {
       if (config.RESEND_API_KEY) {
         const resend = createResendClient(config.RESEND_API_KEY);
         const confirmToken = generateToken('confirm', email, subscriberId);
-        const confirmUrl = `https://fintechlaw.ai/newsletter/confirmed?token=${encodeURIComponent(confirmToken)}`;
+        const agentBase = (config.APP_BASE_URL || '').replace(/\/+$/, '');
+        const confirmUrl = agentBase
+          ? `${agentBase}/api/subscribe/confirm?token=${encodeURIComponent(confirmToken)}`
+          : `https://fintechlaw.ai/api/subscribe/confirm?token=${encodeURIComponent(confirmToken)}`;
         await sendNewsletterEmail(resend, {
           from: config.RESEND_FROM,
           to: [email],
