@@ -59,10 +59,18 @@ export async function sendReviewMessage(client, channel, payload) {
     statusLabel = 'Needs review — see judge notes';
   }
 
+  const brandPrefix = payload.brandLabel
+    ? `[${payload.brandLabel}] `
+    : '';
+
   const blocks = [
     {
       type: 'header',
-      text: { type: 'plain_text', text: 'New Blog Draft for Review', emoji: true },
+      text: {
+        type: 'plain_text',
+        text: `${brandPrefix}New Blog Draft for Review`.trim(),
+        emoji: true,
+      },
     },
     { type: 'divider' },
     {
@@ -269,6 +277,55 @@ export async function sendMondaySearchAndRankReport(client, channel, payload) {
     success('sendMondaySearchAndRankReport', { ts: result.ts });
   }
   return result;
+}
+
+/** Shorter Wed mid-week scan+rank summary (no feed-health attachment). */
+export async function sendMidweekScanAndRankReport(client, channel, payload) {
+  start('sendMidweekScanAndRankReport');
+  const channelId = normalizeChannelId(channel);
+  const { scan, rank } = payload;
+  const rep = rank?.report;
+  const minRel = rep?.minRelevance ?? 7;
+  const aboveMinAll = rep?.countAllScoredAtOrAboveMin ?? 0;
+
+  const text =
+    `*Wed mid-week scan & rank*\n` +
+    `Scan: ${scan.inserted ?? 0} new · ${scan.feedsProcessed ?? 0} source(s)\n` +
+    `Rank: ${rank.ranked ?? 0} ranked · ${rank.archived ?? 0} archived · ${rank.skippedOverlap ?? 0} overlap-skipped\n` +
+    `At/above ${minRel}: ${aboveMinAll}`;
+
+  const result = await breaker.execute(
+    () =>
+      client.chat.postMessage({
+        channel: channelId,
+        text: 'Wednesday: mid-week scan & rank',
+        blocks: [
+          {
+            type: 'header',
+            text: { type: 'plain_text', text: 'Wednesday: mid-week scan & rank', emoji: true },
+          },
+          { type: 'section', text: { type: 'mrkdwn', text } },
+        ],
+      }),
+    { ok: false, error: 'slack_unavailable' }
+  );
+  if (!result.ok) fail('sendMidweekScanAndRankReport', new Error(String(result.error)), { channelId });
+  else success('sendMidweekScanAndRankReport', { ts: result.ts });
+  return result;
+}
+
+export async function sendLowRankedQueueAlert(client, channel, payload) {
+  start('sendLowRankedQueueAlert');
+  const channelId = normalizeChannelId(channel);
+  const { brandId, count, threshold } = payload;
+  const text =
+    `:warning: *Low ranked queue* — \`${brandId}\` has ${count} ranked topic(s) ` +
+    `(target ≥ ${threshold}). Consider manual \`/suggest\` or check scanner health.`;
+
+  return breaker.execute(
+    () => client.chat.postMessage({ channel: channelId, text }),
+    { ok: false, error: 'slack_unavailable' }
+  );
 }
 
 /**

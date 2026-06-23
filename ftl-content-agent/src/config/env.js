@@ -57,6 +57,12 @@ const OPTIONAL_STRING = [
   'XAI_API_KEY',
   'GROK_API_KEY',
   'DAILY_PUBLISH_MIN_RELEVANCE',
+  'DAILY_PUBLISH_BACKFILL_TARGET',
+  'RANK_BATCH_LIMIT',
+  'SCAN_WINDOW_HOURS',
+  'SCAN_ITEMS_PER_FEED',
+  'ENABLE_RIKKA_PIPELINE',
+  'RIKKA_PUBLISH_MODE',
   'PRODUCTION_TRIGGER_SECRET',
   'PREJUDGE_ENFORCE_VERIFIED_CITATIONS',
   'NOTION_MCP_URL',
@@ -233,6 +239,27 @@ export function validateEnv() {
   const dailyMinRaw = (optional.DAILY_PUBLISH_MIN_RELEVANCE ?? '7').trim() || '7';
   const dailyMin = Number.parseFloat(dailyMinRaw);
   config.DAILY_PUBLISH_MIN_RELEVANCE = Number.isNaN(dailyMin) ? 7.0 : dailyMin;
+
+  const backfillTargetRaw =
+    (optional.DAILY_PUBLISH_BACKFILL_TARGET ?? '5').trim() || '5';
+  const backfillTarget = Number.parseFloat(backfillTargetRaw);
+  config.DAILY_PUBLISH_BACKFILL_TARGET = Number.isNaN(backfillTarget)
+    ? 5
+    : backfillTarget;
+
+  const rankBatchRaw = (optional.RANK_BATCH_LIMIT ?? '75').trim() || '75';
+  const rankBatch = Number.parseInt(rankBatchRaw, 10);
+  config.RANK_BATCH_LIMIT = Number.isNaN(rankBatch) ? 75 : Math.max(1, rankBatch);
+
+  config.SCAN_WINDOW_HOURS = (optional.SCAN_WINDOW_HOURS ?? '168').trim() || '168';
+  config.SCAN_ITEMS_PER_FEED = (optional.SCAN_ITEMS_PER_FEED ?? '35').trim() || '35';
+
+  const enableRikkaRaw = optional.ENABLE_RIKKA_PIPELINE;
+  config.ENABLE_RIKKA_PIPELINE =
+    enableRikkaRaw === ''
+      ? false
+      : ['1', 'true', 'yes', 'y'].includes(String(enableRikkaRaw).toLowerCase());
+  config.RIKKA_PUBLISH_MODE = (optional.RIKKA_PUBLISH_MODE ?? 'ftl_test').trim() || 'ftl_test';
 
   config.PRODUCTION_TRIGGER_SECRET = (optional.PRODUCTION_TRIGGER_SECRET ?? '').trim();
   const prejudgeCitationsRaw = optional.PREJUDGE_ENFORCE_VERIFIED_CITATIONS;

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createSanityClient, createAndPublishBlogFromDraft } from '../integrations/sanity.js';
 import { CircuitBreaker } from '../utils/circuit-breaker.js';
+import { getBrand } from '../config/brands/index.js';
 import { recordPublishedPost } from './prior-posts.js';
 import { fail, start, success } from '../utils/logger.js';
 
@@ -29,6 +30,7 @@ export async function publishDraftToSanity(supabase, config, draftId, options = 
   if (draftErr) throw new Error(draftErr.message);
 
   const sanityClient = createSanityClient(config);
+  const brand = getBrand(draft.brand_id ?? 'fintechlaw');
 
   const publishResult = await breaker.execute(
     () =>
@@ -38,6 +40,10 @@ export async function publishDraftToSanity(supabase, config, draftId, options = 
         draft,
         generateImage,
         publishAfterCreate,
+        sanityAuthor: {
+          authorName: brand.author?.name,
+          authorTitle: brand.author?.title,
+        },
       }),
   );
   if (publishResult?.error) throw new Error(String(publishResult.error));
@@ -71,11 +77,11 @@ export async function publishDraftToSanity(supabase, config, draftId, options = 
     try {
       const { data: topicRow } = await supabase
         .from('content_topics')
-        .select('source_name, category')
+        .select('source_name, category, brand_id')
         .eq('id', draft.topic_id)
         .maybeSingle();
       await recordPublishedPost(supabase, {
-        draft,
+        draft: { ...draft, brand_id: draft.brand_id ?? topicRow?.brand_id },
         topic: topicRow ?? {},
         publishedAt: nowIso,
         // Intentionally NOT passing config.APP_BASE_URL — that resolves to

@@ -8,6 +8,13 @@
  *   legal_engineering  — Law-firm AI adoption, legal operations, practice transformation
  *   crypto             — digital assets, blockchain, DeFi, stablecoins
  *   fintech            — fintech startups, banking/payments, embedded finance
+ *   privacy            — Rikka: state/US privacy law, consumer consent
+ *   data_protection    — Rikka: breach, DPA, cross-border transfer
+ *   ai_governance      — Rikka: EU AI Act, NIST AI RMF, model risk
+ *
+ * Each source may include:
+ *   brand: 'fintechlaw' | 'rikka'
+ *   sourceType: 'rss' | 'html_list'
  *
  * @typedef {(
  *   'regulatory' |
@@ -15,12 +22,15 @@
  *   'ai_legal_tech' |
  *   'legal_engineering' |
  *   'crypto' |
- *   'fintech'
+ *   'fintech' |
+ *   'privacy' |
+ *   'data_protection' |
+ *   'ai_governance'
  * )} TopicCategory
  */
 
 /** @type {{ url: string, category: TopicCategory, sourceName: string }[]} */
-export const RSS_FEEDS = [
+const FTL_RSS_BASE = [
   // ── Regulatory & Enforcement ──────────────────────────────────
   {
     url: 'https://www.sec.gov/news/pressreleases.rss',
@@ -53,21 +63,6 @@ export const RSS_FEEDS = [
     sourceName: 'CFPB Newsroom',
   },
   {
-    url: 'https://www.cftc.gov/RSS/RSSGP/rssgp.xml',
-    category: 'regulatory',
-    sourceName: 'CFTC Press Releases',
-  },
-  {
-    url: 'https://www.cftc.gov/RSS/RSSENF/rssenf.xml',
-    category: 'regulatory',
-    sourceName: 'CFTC Enforcement',
-  },
-  {
-    url: 'https://www.cftc.gov/RSS/RSSST/rssst.xml',
-    category: 'regulatory',
-    sourceName: 'CFTC Speeches & Testimony',
-  },
-  {
     url: 'https://www.federalreserve.gov/feeds/press_all.xml',
     category: 'regulatory',
     sourceName: 'Federal Reserve Press',
@@ -97,7 +92,32 @@ export const RSS_FEEDS = [
     category: 'regulatory',
     sourceName: 'ABA Journal News',
   },
-  // FinCEN and FinRA do not publish parseable RSS. FinCEN is email-only via
+  {
+    url: 'https://www.finra.org/rss.xml',
+    category: 'regulatory',
+    sourceName: 'FINRA News',
+  },
+  {
+    url: 'https://www.complianceweek.com/rss',
+    category: 'regulatory',
+    sourceName: 'Compliance Week',
+  },
+  {
+    url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&count=40&output=atom',
+    category: 'regulatory',
+    sourceName: 'SEC EDGAR Current Filings',
+  },
+  {
+    url: 'https://www.esma.europa.eu/rss.xml',
+    category: 'regulatory',
+    sourceName: 'ESMA News',
+  },
+  {
+    url: 'https://www.globallegalpost.com/rss',
+    category: 'regulatory',
+    sourceName: 'Global Legal Post',
+  },
+  // FinCEN is email-only via GovDelivery; no parseable RSS today.
   // GovDelivery (https://public.govdelivery.com/accounts/USFINCEN/subscriber/new);
   // FinRA's news pages render JS-only with no <link rel="alternate"> feed.
   // Re-add if either ships an RSS endpoint.
@@ -150,6 +170,16 @@ export const RSS_FEEDS = [
     url: 'https://www.privatefundsmanagement.net/feed/',
     category: 'financial_services',
     sourceName: 'Private Funds Management',
+  },
+  {
+    url: 'https://www.hedgeweek.com/feed/',
+    category: 'financial_services',
+    sourceName: 'HedgeWeek',
+  },
+  {
+    url: 'https://www.managedfunds.org/feed/',
+    category: 'financial_services',
+    sourceName: 'Managed Funds Association',
   },
   // ICI, ThinkAdvisor: no working RSS path as of 2026-05; both return 404
   // at common feed URLs. Re-add when they ship one.
@@ -242,9 +272,14 @@ export const RSS_FEEDS = [
     sourceName: 'CoinDesk',
   },
   {
-    url: 'https://cointelegraph.com/rss',
+    url: 'https://digitalchamber.org/feed/',
     category: 'crypto',
-    sourceName: 'CoinTelegraph',
+    sourceName: 'Digital Chamber',
+  },
+  {
+    url: 'https://blockworks.co/feed',
+    category: 'crypto',
+    sourceName: 'Blockworks',
   },
   {
     url: 'https://www.theblock.co/rss.xml',
@@ -298,7 +333,85 @@ export const RSS_FEEDS = [
     category: 'fintech',
     sourceName: 'American Banker',
   },
+  {
+    url: 'https://bankingjournal.aba.com/feed/',
+    category: 'fintech',
+    sourceName: 'ABA Banking Journal',
+  },
+  {
+    url: 'https://www.paymentsdive.com/feeds/news/',
+    category: 'fintech',
+    sourceName: 'Payments Dive',
+  },
+  {
+    url: 'https://www.crowdfundinsider.com/feed/',
+    category: 'fintech',
+    sourceName: 'Crowdfund Insider',
+  },
   // American Banker's /feed path returns HTML (paywall redirect) but /rss
   // returns a parseable RSS body. Keep the /rss endpoint; revisit if they
   // tighten access.
 ];
+
+/** Rikka Law sources — privacy, data protection, AI governance */
+const RIKKA_SOURCES_RAW = [
+  {
+    url: 'https://www.ftc.gov/feeds/press-release-consumer-protection.xml',
+    category: 'privacy',
+    sourceName: 'FTC Bureau of Consumer Protection',
+    brand: 'rikka',
+    sourceType: 'rss',
+  },
+  {
+    url: 'https://epic.org/rss',
+    category: 'privacy',
+    sourceName: 'EPIC',
+    brand: 'rikka',
+    sourceType: 'rss',
+  },
+  {
+    url: 'https://fpf.org/feed/',
+    category: 'privacy',
+    sourceName: 'Future of Privacy Forum',
+    brand: 'rikka',
+    sourceType: 'rss',
+  },
+  {
+    url: 'https://www.nist.gov/news-events/cybersecurity/rss.xml',
+    category: 'ai_governance',
+    sourceName: 'NIST Cybersecurity News',
+    brand: 'rikka',
+    sourceType: 'rss',
+  },
+  {
+    url: 'https://iapp.org/news',
+    category: 'privacy',
+    sourceName: 'IAPP News',
+    brand: 'rikka',
+    sourceType: 'html_list',
+    hrefPattern: /href="(\/news\/[^"#?]+)"/gi,
+    baseUrl: 'https://iapp.org',
+  },
+  {
+    url: 'https://www.reuters.com/legal/data-privacy/',
+    category: 'data_protection',
+    sourceName: 'Reuters Legal — Data Privacy',
+    brand: 'rikka',
+    sourceType: 'html_list',
+    hrefPattern: /href="(\/legal\/data-privacy\/[^"#?]+)"/gi,
+    baseUrl: 'https://www.reuters.com',
+  },
+];
+
+function tagFtlFeed(feed) {
+  return { brand: 'fintechlaw', sourceType: 'rss', ...feed };
+}
+
+/** All scanner sources (FTL + Rikka), tagged with brand and sourceType */
+export const CONTENT_SOURCES = [
+  ...FTL_RSS_BASE.map(tagFtlFeed),
+  ...RIKKA_SOURCES_RAW,
+];
+
+/** @deprecated alias — use CONTENT_SOURCES */
+export const RSS_FEEDS = CONTENT_SOURCES;

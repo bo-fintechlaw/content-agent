@@ -84,6 +84,24 @@ describe('applyDiversityPenalty', () => {
     expect(adjusted[0].penalty).toBe(SAME_SOURCE_PENALTY + SAME_CATEGORY_PENALTY);
   });
 
+  it('applies title trigram penalty against recent published titles (brand-scoped)', () => {
+    const candidates = [
+      c(8.5, 'Reuters', 'privacy', 'A'),
+      c(7.0, 'IAPP', 'privacy', 'B'),
+    ];
+    const recent = [
+      {
+        source_name: 'Other',
+        category: 'regulatory',
+        brand_id: 'fintechlaw',
+        blog_title: 'SEC settles advisory firm over marketing rule violations',
+        published_at: 'now',
+      },
+    ];
+    const adjusted = applyDiversityPenalty(candidates, recent);
+    expect(adjusted[0].topic.id).toBe('A');
+  });
+
   it('handles null/undefined inputs without throwing', () => {
     expect(applyDiversityPenalty(null as any, null as any)).toEqual([]);
     expect(applyDiversityPenalty([], null as any)).toEqual([]);

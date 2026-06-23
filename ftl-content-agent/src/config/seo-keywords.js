@@ -15,7 +15,10 @@
  *   'legal_engineering' |
  *   'crypto' |
  *   'fintech' |
- *   'consumer_compliance'
+ *   'consumer_compliance' |
+ *   'privacy' |
+ *   'data_protection' |
+ *   'ai_governance'
  * )} TopicCategory
  */
 
@@ -78,6 +81,35 @@ export const SEO_KEYWORD_CLUSTERS = {
     'payments compliance',
     'partner bank',
     'banking-as-a-service',
+  ],
+  privacy: [
+    'CCPA',
+    'CPRA',
+    'GDPR',
+    'state privacy laws',
+    'biometric privacy',
+    'consumer consent',
+    'privacy notice',
+    'opt-out rights',
+  ],
+  data_protection: [
+    'GLBA',
+    'Reg S-P',
+    'breach notification',
+    'vendor DPA',
+    'data mapping',
+    'cross-border transfer',
+    'data retention',
+    'privacy impact assessment',
+  ],
+  ai_governance: [
+    'EU AI Act',
+    'NIST AI RMF',
+    'model risk',
+    'AI audit',
+    'algorithmic accountability',
+    'AI policy',
+    'AI compliance',
   ],
   // Narrow opt-in cluster — NOT assigned to any RSS feed. Used only for
   // manually-suggested topics where consumer-finance compliance (terms of

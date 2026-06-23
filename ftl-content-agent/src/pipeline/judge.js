@@ -1,5 +1,6 @@
 import { createAnthropicClient, promptJson } from '../integrations/anthropic.js';
 import { createSlackClient, sendReviewMessage } from '../integrations/slack.js';
+import { getBrand } from '../config/brands/index.js';
 import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from '../prompts/judge-system.js';
 import { reviseBlogContent } from './blog-reviser.js';
 import { reviseSocialContent } from './social-reviser.js';
@@ -117,12 +118,15 @@ export async function runJudging(supabase, config, options = {}) {
 
     const editorialMeta = draft.editorial_meta ?? null;
 
+    const brandId = draft.brand_id ?? 'fintechlaw';
+    const brand = getBrand(brandId);
+
     let result;
     try {
       result = await promptJson(client, {
         model: config.ANTHROPIC_MODEL,
-        system: JUDGE_SYSTEM_PROMPT,
-        user: buildJudgeUserPrompt({ draft, linkContext, editorialMeta }),
+        system: brand.prompts.judgeSystem ?? JUDGE_SYSTEM_PROMPT,
+        user: (brand.prompts.buildJudgeUser ?? buildJudgeUserPrompt)({ draft, linkContext, editorialMeta }),
         maxTokens: 3_200,
         temperature: 0.1,
       });
@@ -496,6 +500,7 @@ export async function runJudging(supabase, config, options = {}) {
     await sendReviewMessage(slack, config.SLACK_CHANNEL_ID, {
       draftId: draft.id,
       blog_title: draft.blog_title,
+      brandLabel: brand.slackLabel,
       scores: normalizedScores,
       composite,
       verdict,

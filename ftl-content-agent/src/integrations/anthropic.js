@@ -1,7 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CircuitBreaker } from '../utils/circuit-breaker.js';
 import { tpmBudget, estimateInputTokens } from '../utils/tpm-budget.js';
-import { fail, start, success } from '../utils/logger.js';
+import {
+  buildAnthropicSystemBlocks,
+  logPromptCacheUsage,
+  promptCacheRequestHeaders,
+  resolvePromptCache,
+} from '../utils/promptCache.js';
+import { fail, start, success, logger } from '../utils/logger.js';
 
 const DEFAULT_MODEL = 'claude-opus-4-8'; // pragma: allowlist secret // pragma: allowlist secret
 
@@ -106,13 +112,17 @@ export function createAnthropicClient(apiKey) {
 
 /**
  * @param {Anthropic} client
- * @param {{ system: string, user: string, model?: string, maxTokens?: number, temperature?: number }} args
+ * @param {{ system: string, user: string, model?: string, maxTokens?: number, temperature?: number, promptCache?: { enabled?: boolean; ttl?: '5m' | '1h' } }} args
  */
 export async function promptJson(client, args) {
   start('promptJson');
   const model = args.model || DEFAULT_MODEL;
   const estimate = estimateInputTokens({ system: args.system, user: args.user });
   await tpmBudget.waitForCapacity(model, estimate);
+
+  const cache = resolvePromptCache({ promptCache: args.promptCache });
+  const system = buildAnthropicSystemBlocks(args.system, cache);
+  const requestHeaders = promptCacheRequestHeaders(cache);
 
   const breaker = getBreaker(model);
   const result = await breaker.execute(
@@ -123,14 +133,16 @@ export async function promptJson(client, args) {
             {
               model,
               max_tokens: args.maxTokens ?? 1800,
-              system: args.system,
+              system: system ?? undefined,
               messages: [{ role: 'user', content: args.user }],
             },
             model,
             args.temperature ?? 0.2
-          )
+          ),
+          requestHeaders ? { headers: requestHeaders } : undefined
         );
         tpmBudget.record(model, resp.usage?.input_tokens ?? estimate);
+        logPromptCacheUsage(resp, cache, model, logger);
         const text =
           resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
           '';
@@ -157,7 +169,7 @@ export async function promptJson(client, args) {
  * the TPM budget — we add a multiplier to the pre-call estimate.
  *
  * @param {Anthropic} client
- * @param {{ system: string, user: string, model?: string, maxTokens?: number, temperature?: number, maxSearches?: number }} args
+ * @param {{ system: string, user: string, model?: string, maxTokens?: number, temperature?: number, maxSearches?: number, promptCache?: { enabled?: boolean; ttl?: '5m' | '1h' } }} args
  */
 export async function promptWithWebSearchJson(client, args) {
   start('promptWithWebSearchJson');
@@ -168,10 +180,12 @@ export async function promptWithWebSearchJson(client, args) {
     user: args.user,
     toolOverheadTokens: 1_500,
   });
-  // web_search re-sends the full conversation each tool round; budget for
-  // ~3x typical multi-turn loop (very conservative — most queries use 2–4 searches).
   const estimate = baseEstimate * Math.max(2, Math.min(4, Math.ceil(maxSearches / 3)));
   await tpmBudget.waitForCapacity(model, estimate);
+
+  const cache = resolvePromptCache({ promptCache: args.promptCache });
+  const system = buildAnthropicSystemBlocks(args.system, cache);
+  const requestHeaders = promptCacheRequestHeaders(cache);
 
   const breaker = getBreaker(model);
   const result = await breaker.execute(
@@ -182,7 +196,7 @@ export async function promptWithWebSearchJson(client, args) {
             {
               model,
               max_tokens: args.maxTokens ?? 4_000,
-              system: args.system,
+              system: system ?? undefined,
               tools: [
                 {
                   type: 'web_search_20250305',
@@ -194,9 +208,11 @@ export async function promptWithWebSearchJson(client, args) {
             },
             model,
             args.temperature ?? 0.1
-          )
+          ),
+          requestHeaders ? { headers: requestHeaders } : undefined
         );
         tpmBudget.record(model, resp.usage?.input_tokens ?? estimate);
+        logPromptCacheUsage(resp, cache, model, logger);
         const text =
           resp.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') ??
           '';
