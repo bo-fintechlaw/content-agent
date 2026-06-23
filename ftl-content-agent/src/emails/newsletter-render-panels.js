@@ -5,6 +5,13 @@ import {
   formatIssueDate,
   sectionLabelForKind,
 } from './newsletter-brand-tokens.js';
+import {
+  NEWSLETTER_CONTACT_CTA,
+  NEWSLETTER_CONTACT_URL,
+  NEWSLETTER_SHARE_CTA,
+  NEWSLETTER_SHARE_URL,
+  NEWSLETTER_UNSUBSCRIBE_URL,
+} from '../constants/newsletter-brand.js';
 
 const brand = FTL_BRAND.colors;
 const fonts = FTL_BRAND.fonts;
@@ -47,6 +54,8 @@ export function buildNewsletterPlainText(issue, urls = {}) {
   lines.push(issue.footer.disclaimer);
   lines.push(issue.footer.physical_address);
   if (urls.archiveUrl) lines.push(`View on web: ${urls.archiveUrl}`);
+  lines.push(`Share: ${NEWSLETTER_SHARE_CTA} ${NEWSLETTER_SHARE_URL}`);
+  lines.push(`Contact: ${NEWSLETTER_CONTACT_CTA} ${NEWSLETTER_CONTACT_URL}`);
   if (urls.unsubscribeUrl) lines.push(`Unsubscribe: ${urls.unsubscribeUrl}`);
   return lines.join('\n');
 }
@@ -165,12 +174,14 @@ function emailFooterRow(issue, urls) {
   if (urls.archiveUrl) {
     links.push(`<a href="${escapeAttr(urls.archiveUrl)}" style="color:${brand.magenta};font-weight:600;">View on web</a>`);
   }
-  if (urls.unsubscribeUrl) {
-    links.push(`<a href="${escapeAttr(urls.unsubscribeUrl)}" style="color:${brand.magenta};font-weight:600;">Unsubscribe</a>`);
-  }
+  const unsubscribeUrl = urls.unsubscribeUrl || NEWSLETTER_UNSUBSCRIBE_URL;
+  links.push(`<a href="${escapeAttr(unsubscribeUrl)}" style="color:${brand.magenta};font-weight:600;">Unsubscribe</a>`);
+
   return `<tr><td style="padding:24px 28px;border-top:1px solid ${brand.border};background:${brand.surfaceAlt};">
     <p style="margin:0 0 12px;font:400 12px/1.55 ${fonts.ui};color:${brand.muted};">${escapeHtml(issue.footer.disclaimer)}</p>
     <p style="margin:0 0 12px;font:400 12px/1.5 ${fonts.ui};color:${brand.muted};">${escapeHtml(issue.footer.physical_address)}</p>
+    <p style="margin:0 0 8px;font:400 13px/1.55 ${fonts.ui};color:${brand.black};"><a href="${escapeAttr(NEWSLETTER_SHARE_URL)}" style="color:${brand.magenta};font-weight:600;">${escapeHtml(NEWSLETTER_SHARE_CTA)}</a></p>
+    <p style="margin:0 0 12px;font:400 13px/1.55 ${fonts.ui};color:${brand.black};"><a href="${escapeAttr(NEWSLETTER_CONTACT_URL)}" style="color:${brand.magenta};font-weight:600;">${escapeHtml(NEWSLETTER_CONTACT_CTA)}</a></p>
     ${links.length ? `<p style="margin:0;font:400 12px/1.5 ${fonts.ui};">${links.join(' &nbsp;·&nbsp; ')}</p>` : ''}
   </td></tr>`;
 }
@@ -353,8 +364,9 @@ function renderWebDocument(issue, ctx) {
     ${panelHtml}
     <footer class="site-footer">
       <p>${escapeHtml(issue.footer.disclaimer)}</p>
-      <p>${escapeHtml(issue.footer.physical_address)}</p>
-      ${urls.archiveUrl ? `<p><a href="${escapeAttr(urls.archiveUrl)}">View archive</a></p>` : ''}
+      <p class="footer-cta"><a href="${escapeAttr(NEWSLETTER_SHARE_URL)}">${escapeHtml(NEWSLETTER_SHARE_CTA)}</a></p>
+      <p class="footer-cta"><a href="${escapeAttr(NEWSLETTER_CONTACT_URL)}">${escapeHtml(NEWSLETTER_CONTACT_CTA)}</a></p>
+      <p class="footer-meta"><a href="${escapeAttr(urls.unsubscribeUrl || NEWSLETTER_UNSUBSCRIBE_URL)}">Unsubscribe</a></p>
     </footer>
   </div>
 </body>
@@ -409,6 +421,8 @@ function webStyles() {
     .action-group-title { margin: 0 0 0.5rem; font-family: ${fonts.ui}; font-weight: 600; color: var(--black); }
     .spotlight-body { white-space: pre-wrap; }
     .site-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); font-family: ${fonts.ui}; font-size: 0.85rem; color: var(--muted); }
+    .footer-cta { margin: 0.75rem 0 0; font-size: 0.95rem; }
+    .footer-meta { margin: 1rem 0 0; font-size: 0.8rem; }
     .site-footer a { color: var(--magenta); }
     a { color: var(--magenta); }
   `;
