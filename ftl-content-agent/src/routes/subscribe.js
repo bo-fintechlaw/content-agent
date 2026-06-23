@@ -7,9 +7,12 @@ import {
   removeContactFromAudience,
   sendNewsletterEmail,
 } from '../integrations/resend.js';
+import { renderSubscribeConfirmEmail } from '../emails/subscribe-confirm-email.js';
 
 const VALID_SEGMENTS = new Set(['financial_services', 'tech_ai_legal']);
 const TOKEN_EXPIRY_HOURS = 72;
+const CONSENT_TEXT =
+  'By confirming, you agree to receive the selected FinTech Law newsletters at this email address.';
 
 /**
  * Double opt-in subscribe endpoints (fleet Supabase + Resend audiences).
@@ -105,7 +108,7 @@ export function createSubscribeRouter(supabase, config) {
       await supabase.from('subscription_events').insert({
         subscriber_id: subscriberId,
         event_type: 'opt_in_sent',
-        consent_text: req.body?.consent_text ?? 'Double opt-in requested via fintechlaw.ai',
+        consent_text: req.body?.consent_text ?? CONSENT_TEXT,
         source: 'api/subscribe',
         metadata: { segments },
       });
@@ -117,12 +120,18 @@ export function createSubscribeRouter(supabase, config) {
         const confirmUrl = agentBase
           ? `${agentBase}/api/subscribe/confirm?token=${encodeURIComponent(confirmToken)}`
           : `https://fintechlaw.ai/api/subscribe/confirm?token=${encodeURIComponent(confirmToken)}`;
+        const { subject, html, text } = renderSubscribeConfirmEmail({
+          confirmUrl,
+          segments,
+          consentText: req.body?.consent_text ?? CONSENT_TEXT,
+          logoUrl: config.FINTECHLAW_LOGO_URL,
+        });
         await sendNewsletterEmail(resend, {
           from: config.RESEND_FROM,
           to: [email],
-          subject: 'Confirm your FinTech Law newsletter subscription',
-          html: `<p>Please confirm your subscription:</p><p><a href="${confirmUrl}">${confirmUrl}</a></p>`,
-          text: `Confirm your subscription: ${confirmUrl}`,
+          subject,
+          html,
+          text,
         });
       }
 

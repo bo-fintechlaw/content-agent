@@ -84,6 +84,7 @@ const OPTIONAL_STRING = [
   'NEWSLETTER_SITE_URL',
   'NEWSLETTER_TEST_EMAIL',
   'NEWSLETTER_TASK_SECRET',
+  'FINTECHLAW_LOGO_URL',
   'SLACK_CMO_SIGNING_SECRET',
   'SLACK_CMO_BO_CHANNEL_ID',
   'ENABLE_NEWSLETTER',
@@ -293,6 +294,7 @@ export function validateEnv() {
   config.RESEND_FROM_EMAIL = resendFrom;
   config.NEWSLETTER_TEST_EMAIL = (optional.NEWSLETTER_TEST_EMAIL ?? '').trim();
   config.NEWSLETTER_TASK_SECRET = (optional.NEWSLETTER_TASK_SECRET ?? '').trim();
+  config.FINTECHLAW_LOGO_URL = (optional.FINTECHLAW_LOGO_URL ?? '').trim();
   config.SLACK_CMO_BO_CHANNEL_ID =
     (optional.SLACK_CMO_BO_CHANNEL_ID ?? '').trim() || 'C0BB9U7AN0Y';
   const enableNewsletterRaw = optional.ENABLE_NEWSLETTER;
