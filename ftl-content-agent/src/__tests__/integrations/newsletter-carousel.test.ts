@@ -1,10 +1,19 @@
-import { renderNewsletterCarousel } from '../../integrations/newsletter-carousel.js';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+  loadCarouselImage,
+  renderNewsletterCarousel,
+} from '../../integrations/newsletter-carousel.js';
 import { NEWSLETTER_AUTHOR_TITLE } from '../../schemas/newsletter.js';
 import {
   NEWSLETTER_FOOTER_DISCLAIMER,
   NEWSLETTER_PHYSICAL_ADDRESS,
   NEWSLETTER_SUBSCRIBE_URL,
 } from '../../constants/newsletter-brand.js';
+
+const ONE_BY_ONE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64'
+);
 
 const MINIMAL_ISSUE = {
   title: 'The Financial Edge — Carousel Font Test',
@@ -22,10 +31,11 @@ const MINIMAL_ISSUE = {
       kicker: 'ANALYSIS · 01',
       headline: 'Carousel panel headline one',
       dek: 'Supporting dek text for the first feature panel.',
-      stats: [],
+      stats: [{ value: '12', label: 'SEC actions' }],
       pull_quote: 'A pull quote for transcript coverage.',
       action_list: ['Review controls'],
       blog_url: 'https://fintechlaw.ai/blog/example-a',
+      hero_image_url: 'https://example.test/hero-a.png',
     },
     {
       kind: 'feature' as const,
@@ -73,6 +83,25 @@ const MINIMAL_ISSUE = {
 };
 
 describe('renderNewsletterCarousel', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('apple-touch-icon') || url.includes('hero')) {
+        return new Response(ONE_BY_ONE_PNG, {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        });
+      }
+      return originalFetch(input);
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
   it('returns carousel URLs for a minimal issue without Supabase', async () => {
     const { urls, transcripts } = await renderNewsletterCarousel(MINIMAL_ISSUE);
 
@@ -80,6 +109,16 @@ describe('renderNewsletterCarousel', () => {
     expect(transcripts.length).toBe(urls.length);
     expect(urls[0]).toContain(MINIMAL_ISSUE.slug);
     expect(urls[0]).toContain('panel-1.png');
+  });
+
+  it('includes archive and blog links in transcripts', async () => {
+    const { transcripts } = await renderNewsletterCarousel(MINIMAL_ISSUE, {
+      archiveUrl: 'https://fintechlaw.ai/newsletters/test-slug',
+    });
+
+    expect(transcripts[0].text).toContain('https://fintechlaw.ai/newsletters/test-slug');
+    expect(transcripts[1].text).toContain('https://fintechlaw.ai/blog/example-a');
+    expect(transcripts[4].text).toContain('https://fintechlaw.ai/contact');
   });
 
   it('uploads panels when Supabase client is provided', async () => {
@@ -106,5 +145,32 @@ describe('renderNewsletterCarousel', () => {
     expect(urls.length).toBe(6);
     expect(uploaded.length).toBe(6);
     expect(urls.every((url) => url.startsWith('https://example.test/storage/'))).toBe(true);
+  });
+});
+
+describe('loadCarouselImage', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('returns a data URI for a fetchable image', async () => {
+    global.fetch = jest.fn(async () =>
+      new Response(ONE_BY_ONE_PNG, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    ) as typeof fetch;
+
+    const dataUri = await loadCarouselImage('https://example.test/hero.png');
+    expect(dataUri).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('returns null when image fetch fails', async () => {
+    global.fetch = jest.fn(async () => new Response(null, { status: 404 })) as typeof fetch;
+
+    const dataUri = await loadCarouselImage('https://example.test/missing.png');
+    expect(dataUri).toBeNull();
   });
 });
