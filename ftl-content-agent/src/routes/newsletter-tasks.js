@@ -16,7 +16,13 @@ export function createNewsletterTaskRouter(supabase, config) {
 
   function checkTaskAuth(req, res) {
     const secret = config.NEWSLETTER_TASK_SECRET;
-    if (!secret) return true;
+    if (!secret) {
+      res.status(503).json({
+        ok: false,
+        error: 'Newsletter task auth not configured (set NEWSLETTER_TASK_SECRET)',
+      });
+      return false;
+    }
     const token =
       req.get('X-Newsletter-Task-Token') ||
       req.query.token ||

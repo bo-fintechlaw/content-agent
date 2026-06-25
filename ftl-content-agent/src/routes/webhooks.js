@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import express from 'express';
 import { fail, start, success } from '../utils/logger.js';
+import { readResponseBodyCapped, validateExternalUrl } from '../utils/ssrf-guard.js';
 import { publishDraftToSanity } from '../pipeline/publisher.js';
 import { reviseSocialContent } from '../pipeline/social-reviser.js';
 import { reviseBlogContent } from '../pipeline/blog-reviser.js';
@@ -96,7 +97,15 @@ export function createSlackWebhookRouter(supabase, config) {
     let summary = '';
     let metaSource = '';
     if (url) {
-      const meta = await fetchUrlMeta(url).catch(() => null);
+      const urlCheck = validateExternalUrl(url);
+      if (!urlCheck.ok) {
+        await postToSlackResponseUrl(responseUrl, {
+          response_type: 'ephemeral',
+          text: `:x: Invalid URL (${urlCheck.error}). Only public http(s) URLs are allowed.`,
+        });
+        return;
+      }
+      const meta = await fetchUrlMeta(urlCheck.url).catch(() => null);
       if (meta?.title) {
         title = meta.title;
         metaSource = 'fetched';
@@ -684,6 +693,8 @@ function extractFirstUrl(text) {
 }
 
 async function fetchUrlMeta(url) {
+  const urlCheck = validateExternalUrl(url);
+  if (!urlCheck.ok) return null;
   // Best-effort metadata pull: 5s timeout, follow redirects, give up on
   // anything non-2xx. Parse the first <title>...</title> and the first
   // og:description / meta description we find. The drafter prompt will
@@ -692,7 +703,7 @@ async function fetchUrlMeta(url) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 5000);
   try {
-    const r = await fetch(url, {
+    const r = await fetch(urlCheck.url, {
       redirect: 'follow',
       signal: ctrl.signal,
       headers: {
@@ -701,7 +712,8 @@ async function fetchUrlMeta(url) {
       },
     });
     if (!r.ok) return null;
-    const html = await r.text();
+    const buf = await readResponseBodyCapped(r);
+    const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     return parseHtmlMeta(html);
   } finally {
     clearTimeout(t);

@@ -17,6 +17,7 @@ import { createSanityClient, patchPublishedShareImage } from '../integrations/sa
 import axios from 'axios';
 import { checkSupabaseConnection } from '../db/supabase.js';
 import { fail, start, success } from '../utils/logger.js';
+import { validateExternalUrl } from '../utils/ssrf-guard.js';
 import { createNewsletterTaskRouter } from './newsletter-tasks.js';
 import { createSubscribeRouter } from './subscribe.js';
 
@@ -32,7 +33,13 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   /** Same gate as start-production / recover-topic (PRODUCTION_TRIGGER_SECRET). */
   function requireProductionTriggerAuth(req, res) {
     const secret = config.PRODUCTION_TRIGGER_SECRET;
-    if (!secret) return true;
+    if (!secret) {
+      res.status(503).json({
+        ok: false,
+        error: 'Production trigger auth not configured (set PRODUCTION_TRIGGER_SECRET)',
+      });
+      return false;
+    }
     const token = String(
       req.query.token ?? req.headers['x-content-agent-token'] ?? '',
     ).trim();
@@ -121,9 +128,17 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
       const validCategories = ['regulatory', 'ai_legal_tech', 'startup', 'crypto'];
       const topicCategory = validCategories.includes(category) ? category : 'startup';
 
+      const trimmedUrl = url?.trim() || null;
+      if (trimmedUrl) {
+        const urlCheck = validateExternalUrl(trimmedUrl);
+        if (!urlCheck.ok) {
+          return res.status(400).json({ ok: false, error: `Invalid url: ${urlCheck.error}` });
+        }
+      }
+
       const row = {
         title: title.trim(),
-        source_url: url?.trim() || null,
+        source_url: trimmedUrl,
         source_name: 'manual_suggestion',
         summary: summary?.trim() || null,
         category: topicCategory,
@@ -228,16 +243,7 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   router.get('/start-production', async (req, res) => {
     start('GET /api/start-production');
     try {
-      const secret = config.PRODUCTION_TRIGGER_SECRET;
-      if (secret) {
-        const token = String(
-          req.query.token ?? req.headers['x-content-agent-token'] ?? ''
-        ).trim();
-        if (token !== secret) {
-          res.status(401).json({ ok: false, error: 'Unauthorized' });
-          return;
-        }
-      }
+      if (!requireProductionTriggerAuth(req, res)) return;
       const topicId = String(req.query.topicId ?? '').trim();
       if (!topicId) {
         res.status(400).json({ ok: false, error: 'Missing query param: topicId' });
@@ -259,16 +265,7 @@ export function createApiRouter(supabaseClient, config, fleetSupabaseClient = nu
   router.get('/recover-topic', async (req, res) => {
     start('GET /api/recover-topic');
     try {
-      const secret = config.PRODUCTION_TRIGGER_SECRET;
-      if (secret) {
-        const token = String(
-          req.query.token ?? req.headers['x-content-agent-token'] ?? ''
-        ).trim();
-        if (token !== secret) {
-          res.status(401).json({ ok: false, error: 'Unauthorized' });
-          return;
-        }
-      }
+      if (!requireProductionTriggerAuth(req, res)) return;
       const topicId = String(req.query.topicId ?? '').trim();
       const draftId = String(req.query.draftId ?? '').trim();
       if (!topicId && !draftId) {
