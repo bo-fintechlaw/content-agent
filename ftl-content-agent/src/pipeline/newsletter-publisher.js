@@ -92,11 +92,14 @@ export async function publishNewsletterIssue(supabase, config, input) {
   }
 
   let carouselUrls = row.carousel_urls ?? [];
+  let carouselRenderError = null;
   if (!carouselUrls.length) {
     try {
       const carousel = await renderNewsletterCarousel(issue, { supabase });
       carouselUrls = carousel.urls;
     } catch (carouselErr) {
+      carouselRenderError =
+        carouselErr instanceof Error ? carouselErr.message : String(carouselErr);
       fail('publishNewsletterIssue:carousel', carouselErr, { slug: issue.slug });
     }
   }
@@ -164,6 +167,7 @@ export async function publishNewsletterIssue(supabase, config, input) {
         title: issue.title,
         archiveUrl,
         carouselUrls,
+        carouselRenderError,
         linkedinPost,
       });
     } catch (slackErr) {
