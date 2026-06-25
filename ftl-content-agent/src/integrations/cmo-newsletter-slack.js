@@ -33,6 +33,39 @@ export function fleetSupabaseFromConfig(config) {
 
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} fleetSupabase
+ * @param {string} issueId
+ */
+async function loadNewsletterIssueRow(fleetSupabase, issueId) {
+  const { data, error } = await fleetSupabase
+    .from('newsletter_issues')
+    .select('id, status, linkedin_post_id')
+    .eq('id', issueId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('newsletter issue not found');
+  return data;
+}
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} fleetSupabase
+ * @param {string | undefined} actionId
+ */
+async function assertAgentActionProposed(fleetSupabase, actionId) {
+  if (!actionId) return;
+  const { data, error } = await fleetSupabase
+    .from('agent_actions')
+    .select('id, status')
+    .eq('id', actionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('agent action not found');
+  if (data.status !== 'proposed') {
+    throw new Error(`stale agent action (status=${data.status})`);
+  }
+}
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} fleetSupabase
  * @param {ReturnType<typeof import('../config/env.js').validateEnv>} config
  * @param {{ actions?: Array<{ action_id: string, value?: string }>, user?: { id: string }, trigger_id?: string }} payload
  */
@@ -144,6 +177,18 @@ export async function sendNewsletterSocialReviewCard(client, channel, payload) {
 async function approveNewsletterIssue(fleetSupabase, config, args) {
   start('approveNewsletterIssue', { issueId: args.issueId });
 
+  const issue = await loadNewsletterIssueRow(fleetSupabase, args.issueId);
+  if (issue.status === 'published') {
+    return { already_published: true, issue_id: args.issueId };
+  }
+  if (issue.status === 'discarded') {
+    throw new Error('Cannot approve a discarded newsletter issue');
+  }
+  if (issue.status !== 'review') {
+    throw new Error(`Cannot approve newsletter issue in status=${issue.status}`);
+  }
+  await assertAgentActionProposed(fleetSupabase, args.actionId);
+
   if (args.actionId) {
     const { error: actionErr } = await fleetSupabase
       .from('agent_actions')
@@ -200,6 +245,13 @@ async function approveNewsletterIssue(fleetSupabase, config, args) {
 
 async function approveNewsletterSocial(fleetSupabase, config, args) {
   start('approveNewsletterSocial', { issueId: args.issueId });
+  const issue = await loadNewsletterIssueRow(fleetSupabase, args.issueId);
+  if (issue.status !== 'published') {
+    throw new Error(`Cannot approve social when issue status=${issue.status}`);
+  }
+  if (issue.linkedin_post_id) {
+    return { linkedin_post_id: issue.linkedin_post_id, skipped: true, issue_id: args.issueId };
+  }
   const result = await postNewsletterSocial(fleetSupabase, config, { issueId: args.issueId });
 
   const channelId = config.SLACK_CMO_BO_CHANNEL_ID || config.SLACK_CHANNEL_ID;
@@ -222,6 +274,10 @@ async function approveNewsletterSocial(fleetSupabase, config, args) {
 
 async function requestNewsletterSocialChanges(fleetSupabase, config, args) {
   start('requestNewsletterSocialChanges', { issueId: args.issueId });
+  const issue = await loadNewsletterIssueRow(fleetSupabase, args.issueId);
+  if (issue.status !== 'published') {
+    throw new Error(`Cannot request social changes when issue status=${issue.status}`);
+  }
   if (!args.triggerId || !config.SLACK_BOT_TOKEN) {
     throw new Error('Missing Slack trigger for feedback modal');
   }
@@ -306,6 +362,10 @@ export async function regenerateNewsletterSocialCard(fleetSupabase, config, inpu
 
 async function rejectNewsletterSocial(fleetSupabase, args) {
   start('rejectNewsletterSocial', { issueId: args.issueId });
+  const issue = await loadNewsletterIssueRow(fleetSupabase, args.issueId);
+  if (issue.status !== 'published') {
+    throw new Error(`Cannot skip social when issue status=${issue.status}`);
+  }
   await fleetSupabase
     .from('newsletter_issues')
     .update({
@@ -317,6 +377,18 @@ async function rejectNewsletterSocial(fleetSupabase, args) {
 }
 
 async function discardNewsletterIssue(fleetSupabase, args) {
+  const issue = await loadNewsletterIssueRow(fleetSupabase, args.issueId);
+  if (issue.status === 'discarded') {
+    return { already_discarded: true, issue_id: args.issueId };
+  }
+  if (issue.status === 'published') {
+    throw new Error('Cannot discard a published newsletter issue');
+  }
+  if (issue.status !== 'review') {
+    throw new Error(`Cannot discard newsletter issue in status=${issue.status}`);
+  }
+  await assertAgentActionProposed(fleetSupabase, args.actionId);
+
   const { error: actionErr } = await fleetSupabase
     .from('agent_actions')
     .update({
@@ -337,6 +409,15 @@ async function discardNewsletterIssue(fleetSupabase, args) {
 }
 
 async function requestNewsletterEdit(fleetSupabase, args) {
+  const issue = await loadNewsletterIssueRow(fleetSupabase, args.issueId);
+  if (issue.status === 'published' || issue.status === 'discarded') {
+    throw new Error(`Cannot edit newsletter issue in status=${issue.status}`);
+  }
+  if (issue.status !== 'review') {
+    throw new Error(`Cannot edit newsletter issue in status=${issue.status}`);
+  }
+  await assertAgentActionProposed(fleetSupabase, args.actionId);
+
   const { error: actionErr } = await fleetSupabase
     .from('agent_actions')
     .update({

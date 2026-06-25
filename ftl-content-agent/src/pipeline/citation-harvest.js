@@ -1,4 +1,5 @@
 import { start, success } from '../utils/logger.js';
+import { readResponseBodyCapped, validateExternalUrl } from '../utils/ssrf-guard.js';
 
 const MAX_URLS = 10;
 const FETCH_TIMEOUT_MS = 12_000;
@@ -129,10 +130,23 @@ function stripToTextPreview(html) {
  */
 export async function fetchOneCitationUrl(url) {
   const u = String(url);
+  const urlCheck = validateExternalUrl(u);
+  if (!urlCheck.ok) {
+    return {
+      url: u,
+      finalUrl: u,
+      ok: false,
+      status: 0,
+      contentType: '',
+      title: null,
+      textPreview: '',
+      error: `blocked_url:${urlCheck.error}`,
+    };
+  }
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(u, {
+    const res = await fetch(urlCheck.url, {
       method: 'GET',
       signal: ctrl.signal,
       headers: {
@@ -148,7 +162,7 @@ export async function fetchOneCitationUrl(url) {
     let title = null;
     let textPreview = '';
     if (ok) {
-      const buf = await res.arrayBuffer();
+      const buf = await readResponseBodyCapped(res);
       const asText = new TextDecoder('utf-8', { fatal: false }).decode(buf);
       if (contentType.includes('text/html') || asText.trim().startsWith('<!')) {
         title = extractTitleFromHtml(asText) || null;
