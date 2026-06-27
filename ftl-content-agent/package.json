@@ -19,7 +19,8 @@
     "sanity:mcp:test": "node scripts/test-sanity-mcp.mjs",
     "slack:ping": "node scripts/slack-ping.mjs",
     "blog:backfill-image": "node scripts/backfill-blog-share-image.mjs",
-    "analytics:import": "node scripts/import-analytics.mjs"
+    "analytics:import": "node scripts/import-analytics.mjs",
+    "verify:agent-core-pin": "node scripts/verify-agent-core-pins.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -1,0 +1,33 @@
+{
+  "secrets": [
+    "ftl-cto-agent",
+    "ftl-cfo-agent",
+    "fintechlaw-cos-agent",
+    "ftl-cmo-agent",
+    "ftl-doc-drafting-agent",
+    "ftl-asana-mcp",
+    "ftl-content-agent",
+    "content-agent",
+    "ftl-notion-mcp",
+    "ftl-clio-mcp",
+    "ftl-lead-evaluator",
+    "regulatory-agent",
+    "ftl-board-agent",
+    "ftl-agent-core"
+  ],
+  "mirror": [
+    { "repo": "bo-fintechlaw/ftl-cfo-agent", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/fintechlaw-cos-agent", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-cmo-agent", "profile": "fleet", "agentId": "cmo" },
+    { "repo": "bo-fintechlaw/ftl-doc-drafting-agent", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-asana-mcp", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-content-agent", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/content-agent", "profile": "content-monorepo", "agentId": "content" },
+    { "repo": "bo-fintechlaw/ftl-notion-mcp", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-clio-mcp", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-lead-evaluator", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/regulatory-agent", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-board-agent", "profile": "csuite" },
+    { "repo": "bo-fintechlaw/ftl-agent-core", "profile": "agent-core" }
+  ]
+}
